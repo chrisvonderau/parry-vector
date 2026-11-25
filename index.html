@@ -60,9 +60,8 @@
     border-radius: 4px;
     cursor: pointer;
     white-space: nowrap;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    transition: all 0.15s ease;
+    background: rgba(10, 14, 20, 0.88);
+    transition: border-color 0.15s ease, background 0.15s ease;
   }
   .hud-btn:hover, .hud-btn:active {
     background: rgba(0, 240, 255, 0.18);
@@ -101,6 +100,9 @@
       font-size: 10px;
       letter-spacing: 0.05em;
       padding: 4px 6px;
+    }
+    #shakeBtn {
+      display: none;
     }
   }
   #touchControls {
@@ -142,8 +144,9 @@
     border-radius: 50%;
     background: rgba(0, 240, 255, 0.28);
     border: 1.5px solid var(--cyan);
-    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
     pointer-events: none;
+    will-change: transform;
   }
   #touchParryBtn {
     position: absolute;
@@ -197,6 +200,7 @@
 <body>
 <div id="topBar">
   <div id="gamepadBadge">INPUT: KEYBOARD / MOUSE</div>
+  <button class="hud-btn" id="shakeBtn" title="Screen Shake Intensity (Full / Low / Off)">SHAKE: FULL</button>
   <button class="hud-btn" id="audioBtn" title="Toggle Synth Audio">AUDIO: ON</button>
   <button class="hud-btn" id="pauseBtn" title="Pause or Resume (Esc / P / Start — Esc again or B for Menu)">PAUSE</button>
 </div>
@@ -218,9 +222,13 @@
   // ============================================================================
   const SAVE_KEY = 'parry_vector_gauntlet_v1';
 
+  const SHAKE_MODES = ['FULL', 'LOW', 'OFF'];
+  const SHAKE_SCALES = { FULL: 1.0, LOW: 0.42, OFF: 0.0 };
+
   function loadSave() {
     const fallback = {
       overclockedUnlocked: false,
+      shakeMode: 'FULL',
       best: {
         STANDARD: { score: 0, time: null },
         OVERCLOCKED: { score: 0, time: null }
@@ -232,8 +240,10 @@
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return fallback;
       const b = parsed.best || {};
+      const sm = SHAKE_MODES.includes(parsed.shakeMode) ? parsed.shakeMode : 'FULL';
       return {
         overclockedUnlocked: Boolean(parsed.overclockedUnlocked),
+        shakeMode: sm,
         best: {
           STANDARD: {
             score: Number.isFinite(b.STANDARD && b.STANDARD.score) ? b.STANDARD.score : 0,
@@ -254,6 +264,7 @@
     try {
       window.localStorage.setItem(SAVE_KEY, JSON.stringify({
         overclockedUnlocked: state.overclockedUnlocked,
+        shakeMode: state.shakeMode,
         best: state.best
       }));
     } catch (_) {}
@@ -266,7 +277,7 @@
   const ctx = canvas.getContext('2d');
   let W = window.innerWidth;
   let H = window.innerHeight;
-  let DPR = Math.min(window.devicePixelRatio || 1, 2);
+  let DPR = Math.min(window.devicePixelRatio || 1, 1.5);
 
   const arena = {
     x: 0, y: 0, w: 960, h: 640, cx: 480, cy: 320, pad: 24
@@ -276,24 +287,30 @@
     return W < 640;
   }
 
+  const badgeEl = document.getElementById('gamepadBadge');
+  const audioBtnEl = document.getElementById('audioBtn');
+  const shakeBtnEl = document.getElementById('shakeBtn');
+
   function updateInputBadge() {
-    const badge = document.getElementById('gamepadBadge');
-    const audioBtn = document.getElementById('audioBtn');
     const narrow = isNarrow();
     if (padState.connected) {
-      badge.textContent = narrow ? 'XBOX PAD' : 'XBOX CONTROLLER // HAPTICS READY';
-      badge.classList.add('connected');
+      badgeEl.textContent = narrow ? 'XBOX PAD' : 'XBOX CONTROLLER // HAPTICS READY';
+      badgeEl.classList.add('connected');
     } else if (touchState.active) {
-      badge.textContent = narrow ? 'TOUCH' : 'INPUT: TOUCH TWIN-STICK';
-      badge.classList.remove('connected');
+      badgeEl.textContent = narrow ? 'TOUCH' : 'INPUT: TOUCH TWIN-STICK';
+      badgeEl.classList.remove('connected');
     } else {
-      badge.textContent = narrow ? 'KBM' : 'INPUT: KEYBOARD / MOUSE';
-      badge.classList.remove('connected');
+      badgeEl.textContent = narrow ? 'KBM' : 'INPUT: KEYBOARD / MOUSE';
+      badgeEl.classList.remove('connected');
     }
-    audioBtn.textContent = narrow
+    audioBtnEl.textContent = narrow
       ? (audio.enabled ? 'SFX: ON' : 'SFX: OFF')
       : (audio.enabled ? 'AUDIO: ON' : 'AUDIO: OFF');
+    shakeBtnEl.textContent = `SHAKE: ${state.shakeMode}`;
   }
+
+  let stickRectsDirty = true;
+  const cachedStickRects = { move: null, aim: null };
 
   function updateTouchVisibility() {
     const tc = document.getElementById('touchControls');
@@ -301,18 +318,39 @@
       tc.classList.add('active');
       if (state.screen === 'PLAYING') tc.classList.remove('menu-hidden');
       else tc.classList.add('menu-hidden');
+      stickRectsDirty = true;
     } else {
       tc.classList.remove('active');
       tc.classList.remove('menu-hidden');
     }
   }
 
+  let resizeRafId = 0;
+  function scheduleResize() {
+    if (resizeRafId) return;
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = 0;
+      resize();
+    });
+  }
+
   function resize() {
-    W = window.innerWidth;
-    H = window.innerHeight;
-    DPR = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(W * DPR);
-    canvas.height = Math.floor(H * DPR);
+    const newW = window.innerWidth;
+    const newH = window.innerHeight;
+    const rawDPR = Math.min(window.devicePixelRatio || 1, 1.5);
+    const maxScaleW = 2048 / Math.max(1, newW);
+    const maxScaleH = 2048 / Math.max(1, newH);
+    const newDPR = Math.min(rawDPR, maxScaleW, maxScaleH);
+    const targetPxW = Math.max(1, Math.floor(newW * newDPR));
+    const targetPxH = Math.max(1, Math.floor(newH * newDPR));
+
+    W = newW;
+    H = newH;
+    DPR = newDPR;
+    if (canvas.width !== targetPxW || canvas.height !== targetPxH) {
+      canvas.width = targetPxW;
+      canvas.height = targetPxH;
+    }
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     const narrow = isNarrow();
@@ -329,6 +367,7 @@
     arena.cx = arena.x + arena.w * 0.5;
     arena.cy = arena.y + arena.h * 0.5;
     initGrid();
+    stickRectsDirty = true;
     updateInputBadge();
   }
 
@@ -434,23 +473,44 @@
     stepIndex: 0,
     bpm: 128,
 
+    initialized: false,
+    silentBuffer: null,
+
     init() {
-      if (this.ctx) {
-        if (this.ctx.state === 'suspended') this.ctx.resume();
+      if (this.initialized) {
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
         return;
       }
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      this.ctx = new AudioCtx();
-      this.master = this.ctx.createGain();
-      this.master.gain.value = this.enabled ? 0.28 : 0.0;
-      this.master.connect(this.ctx.destination);
+      if (!AudioCtx) {
+        this.initialized = true;
+        return;
+      }
+      try {
+        this.ctx = new AudioCtx();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = this.enabled ? 0.28 : 0.0;
+        this.master.connect(this.ctx.destination);
 
-      this.musicFilter = this.ctx.createBiquadFilter();
-      this.musicFilter.type = 'lowpass';
-      this.musicFilter.frequency.value = 720;
-      this.musicFilter.Q.value = 3.2;
-      this.musicFilter.connect(this.master);
+        this.musicFilter = this.ctx.createBiquadFilter();
+        this.musicFilter.type = 'lowpass';
+        this.musicFilter.frequency.value = 720;
+        this.musicFilter.Q.value = 3.2;
+        this.musicFilter.connect(this.master);
+
+        // Prewarm Web Audio unlock buffer for iPad Safari first touch
+        this.silentBuffer = this.ctx.createBuffer(1, 1, 22050);
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.silentBuffer;
+        src.connect(this.master);
+        src.start(0);
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+      } catch (_) {}
+      this.initialized = true;
     },
 
     toggle() {
@@ -469,11 +529,13 @@
       this.musicFilter.frequency.setTargetAtTime(targetCutoff, this.ctx.currentTime, 0.08);
 
       const stepDur = 60 / this.bpm / 4; // 16th notes
-      this.stepTimer += dt;
-      while (this.stepTimer >= stepDur) {
+      this.stepTimer = Math.min(stepDur * 2, this.stepTimer + dt);
+      let steps = 0;
+      while (this.stepTimer >= stepDur && steps < 2) {
         this.stepTimer -= stepDur;
         this.triggerSeqStep(this.stepIndex, overdrive > 0, bossIdx);
         this.stepIndex = (this.stepIndex + 1) % 16;
+        steps++;
       }
     },
 
@@ -719,7 +781,7 @@
     touchState.moveId = null;
     touchState.moveVec.x = 0;
     touchState.moveVec.y = 0;
-    moveKnob.style.transform = 'translate(0px, 0px)';
+    moveKnob.style.transform = 'translate3d(0px, 0px, 0)';
   }
 
   function resetAimStick() {
@@ -727,7 +789,7 @@
     touchState.aimActive = false;
     touchState.aimVec.x = 0;
     touchState.aimVec.y = 0;
-    aimKnob.style.transform = 'translate(0px, 0px)';
+    aimKnob.style.transform = 'translate3d(0px, 0px, 0)';
   }
 
   function clearAllInputs() {
@@ -746,9 +808,19 @@
     padState.prevRight = false;
   }
 
-  window.addEventListener('blur', clearAllInputs);
+  window.addEventListener('blur', () => {
+    clearAllInputs();
+    state.hitStopUntil = 0;
+  });
+  window.addEventListener('focus', () => {
+    lastTime = performance.now();
+  });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) clearAllInputs();
+    lastTime = performance.now();
+    if (document.hidden) {
+      clearAllInputs();
+      state.hitStopUntil = 0;
+    }
   });
 
   window.addEventListener('gamepadconnected', (e) => {
@@ -792,12 +864,21 @@
     if (state.screen === 'TITLE') {
       if (e.code === 'Tab' || e.code === 'KeyM' || e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
         toggleDifficulty();
+      } else if (e.code === 'KeyV') {
+        cycleShakeMode();
       } else if (e.code === 'Space' || e.code === 'Enter') {
         handleConfirmAction();
       }
     } else if (state.screen === 'PAUSED' || state.screen === 'GAME_OVER' || state.screen === 'VICTORY') {
-      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'KeyW' || e.code === 'KeyS' || e.code === 'Tab') {
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+        cycleOverlaySelection(-1);
+      } else if (e.code === 'ArrowDown' || e.code === 'KeyS' || e.code === 'Tab') {
         cycleOverlaySelection(1);
+      } else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        if (state.screen === 'PAUSED' && state.overlayIdx === 2) cycleShakeMode();
+        else cycleOverlaySelection(e.code === 'ArrowRight' ? 1 : -1);
+      } else if (e.code === 'KeyV') {
+        cycleShakeMode();
       } else if (e.code === 'Space' || e.code === 'Enter') {
         handleConfirmAction();
       } else if (e.code === 'KeyB' || e.code === 'Backspace' || e.code === 'Escape') {
@@ -863,49 +944,73 @@
     const hitPill = (prevScreen === 'TITLE' && e.target === canvas && t0)
       ? hitTestRect(t0.clientX, t0.clientY, getTitlePillRect())
       : false;
+    const hitShakePill = (prevScreen === 'TITLE' && e.target === canvas && t0)
+      ? hitTestRect(t0.clientX, t0.clientY, getTitleShakeRect())
+      : false;
     enableTouchUI();
     if (prevScreen !== 'PLAYING' && e.target === canvas && t0) {
       if (hitPill) toggleDifficulty();
+      else if (hitShakePill) cycleShakeMode();
       else handleCanvasClick(t0.clientX, t0.clientY);
     }
   }, { passive: true });
 
-  function updateStickTouch(zone, knob, touch, outVec) {
-    const rect = zone.getBoundingClientRect();
-    const cx = rect.left + rect.width * 0.5;
-    const cy = rect.top + rect.height * 0.5;
-    const maxR = rect.width * 0.36;
-    let dx = touch.clientX - cx;
-    let dy = touch.clientY - cy;
+  function refreshStickRects() {
+    const mr = moveZone.getBoundingClientRect();
+    const ar = aimZone.getBoundingClientRect();
+    cachedStickRects.move = {
+      cx: mr.left + mr.width * 0.5,
+      cy: mr.top + mr.height * 0.5,
+      maxR: Math.max(18, mr.width * 0.36)
+    };
+    cachedStickRects.aim = {
+      cx: ar.left + ar.width * 0.5,
+      cy: ar.top + ar.height * 0.5,
+      maxR: Math.max(18, ar.width * 0.36)
+    };
+    stickRectsDirty = false;
+  }
+
+  function updateStickTouch(key, knob, touch, outVec) {
+    if (stickRectsDirty || !cachedStickRects[key]) refreshStickRects();
+    const r = cachedStickRects[key];
+    let dx = touch.clientX - r.cx;
+    let dy = touch.clientY - r.cy;
     const dist = Math.hypot(dx, dy);
-    if (dist > maxR) {
-      dx = (dx / dist) * maxR;
-      dy = (dy / dist) * maxR;
+    if (dist > r.maxR) {
+      dx = (dx / dist) * r.maxR;
+      dy = (dy / dist) * r.maxR;
     }
-    knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    outVec.x = dx / maxR;
-    outVec.y = dy / maxR;
+    knob.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0)`;
+    outVec.x = dx / r.maxR;
+    outVec.y = dy / r.maxR;
   }
 
   moveZone.addEventListener('touchstart', (e) => {
     e.preventDefault();
+    stickRectsDirty = true;
     const t = e.changedTouches[0];
     touchState.moveId = t.identifier;
-    updateStickTouch(moveZone, moveKnob, t, touchState.moveVec);
+    updateStickTouch('move', moveKnob, t, touchState.moveVec);
   }, { passive: false });
 
   moveZone.addEventListener('touchmove', (e) => {
     e.preventDefault();
-    for (const t of e.changedTouches) {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
       if (t.identifier === touchState.moveId) {
-        updateStickTouch(moveZone, moveKnob, t, touchState.moveVec);
+        updateStickTouch('move', moveKnob, t, touchState.moveVec);
+        break;
       }
     }
   }, { passive: false });
 
   function onMoveEnd(e) {
-    for (const t of e.changedTouches) {
-      if (t.identifier === touchState.moveId) resetMoveStick();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === touchState.moveId) {
+        resetMoveStick();
+        break;
+      }
     }
   }
   moveZone.addEventListener('touchend', onMoveEnd);
@@ -913,17 +1018,20 @@
 
   aimZone.addEventListener('touchstart', (e) => {
     e.preventDefault();
+    stickRectsDirty = true;
     const t = e.changedTouches[0];
     touchState.aimId = t.identifier;
     touchState.aimActive = true;
-    updateStickTouch(aimZone, aimKnob, t, touchState.aimVec);
+    updateStickTouch('aim', aimKnob, t, touchState.aimVec);
   }, { passive: false });
 
   aimZone.addEventListener('touchmove', (e) => {
     e.preventDefault();
-    for (const t of e.changedTouches) {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
       if (t.identifier === touchState.aimId) {
-        updateStickTouch(aimZone, aimKnob, t, touchState.aimVec);
+        updateStickTouch('aim', aimKnob, t, touchState.aimVec);
+        break;
       }
     }
   }, { passive: false });
@@ -955,12 +1063,16 @@
     screen: 'TITLE', // TITLE | PLAYING | PAUSED | GAME_OVER | VICTORY
     difficulty: 'STANDARD', // STANDARD | OVERCLOCKED
     overclockedUnlocked: initialSave.overclockedUnlocked,
+    shakeMode: initialSave.shakeMode,
     best: initialSave.best,
     bossIndex: 0,
     score: 0,
     runTime: 0,
-    hitStop: 0,
+    hitStopUntil: 0,
+    get hitStop() { return Math.max(0, (this.hitStopUntil - performance.now()) / 1000); },
+    set hitStop(sec) { this.hitStopUntil = sec > 0 ? performance.now() + Math.min(250, sec * 1000) : 0; },
     shakeTime: 0,
+    shakeDur: 0,
     shakeMag: 0,
     bannerTimer: 0,
     bannerText: '',
@@ -995,11 +1107,50 @@
     totalParries: 0
   };
 
+  const MAX_BULLETS = 220;
+  const MAX_PARTICLES = 240;
+  const bulletPool = Array.from({ length: MAX_BULLETS }, () => ({
+    owner: 'ENEMY', x: 0, y: 0, vx: 0, vy: 0, radius: 5, damage: 1, reflected: false
+  }));
+  const particlePool = Array.from({ length: MAX_PARTICLES }, () => ({
+    x: 0, y: 0, vx: 0, vy: 0, color: '#00f0ff', life: 0, maxLife: 0.45, size: 2
+  }));
+
   let bullets = [];
   let lasers = [];
   let particles = [];
   let floatingTexts = [];
   let boss = null;
+
+  function releaseAllBullets() {
+    while (bullets.length > 0) {
+      const b = bullets.pop();
+      if (bulletPool.length < MAX_BULLETS) bulletPool.push(b);
+    }
+  }
+
+  function releaseBulletAt(i) {
+    const last = bullets.length - 1;
+    const b = bullets[i];
+    if (i !== last) bullets[i] = bullets[last];
+    bullets.pop();
+    if (b && bulletPool.length < MAX_BULLETS) bulletPool.push(b);
+  }
+
+  function releaseAllParticles() {
+    while (particles.length > 0) {
+      const pt = particles.pop();
+      if (particlePool.length < MAX_PARTICLES) particlePool.push(pt);
+    }
+  }
+
+  function releaseParticleAt(i) {
+    const last = particles.length - 1;
+    const pt = particles[i];
+    if (i !== last) particles[i] = particles[last];
+    particles.pop();
+    if (pt && particlePool.length < MAX_PARTICLES) particlePool.push(pt);
+  }
 
   const BOSS_DEFS = [
     {
@@ -1100,12 +1251,13 @@
       state.bossIndex = 0;
     }
     resetPlayerForFight(isFreshRun);
-    bullets = [];
+    releaseAllBullets();
     lasers = [];
-    particles = [];
+    releaseAllParticles();
     floatingTexts = [];
-    state.hitStop = 0;
+    state.hitStopUntil = 0;
     state.shakeTime = 0;
+    state.shakeDur = 0;
     state.shakeMag = 0;
     state.parryBufferTimer = 0;
     state.laserHintShown = false;
@@ -1122,8 +1274,9 @@
     state.bossIndex = 0;
     state.score = 0;
     state.runTime = 0;
-    state.hitStop = 0;
+    state.hitStopUntil = 0;
     state.shakeTime = 0;
+    state.shakeDur = 0;
     state.shakeMag = 0;
     state.bannerTimer = 0;
     state.bannerText = '';
@@ -1135,9 +1288,9 @@
     state.victoryMsg = '';
     state.newBestNote = '';
     boss = null;
-    bullets = [];
+    releaseAllBullets();
     lasers = [];
-    particles = [];
+    releaseAllParticles();
     floatingTexts = [];
     resetPlayerForFight(true);
     player.invuln = 0;
@@ -1160,22 +1313,45 @@
     haptics.rumble(45, 0.4, 0.2, 0.4, 0.4);
   }
 
+  function cycleShakeMode() {
+    const idx = SHAKE_MODES.indexOf(state.shakeMode);
+    state.shakeMode = SHAKE_MODES[(idx + 1) % SHAKE_MODES.length];
+    if (state.shakeMode === 'OFF') {
+      state.shakeTime = 0;
+      state.shakeDur = 0;
+      state.shakeMag = 0;
+    }
+    writeSave();
+    updateInputBadge();
+    audio.sfxParryCast();
+  }
+
+  function getOverlayOptionCount() {
+    return state.screen === 'PAUSED' ? 3 : 2;
+  }
+
   function togglePause() {
     if (state.screen === 'PLAYING') {
       state.screen = 'PAUSED';
       state.overlayIdx = 0;
+      state.hitStopUntil = 0;
+      state.shakeTime = 0;
+      state.shakeDur = 0;
+      state.shakeMag = 0;
       mouse.down = false;
       resetMoveStick();
       resetAimStick();
       updateTouchVisibility();
     } else if (state.screen === 'PAUSED') {
       state.screen = 'PLAYING';
+      lastTime = performance.now();
       updateTouchVisibility();
     }
   }
 
   function cycleOverlaySelection(delta) {
-    state.overlayIdx = (state.overlayIdx + delta + 2) % 2;
+    const count = getOverlayOptionCount();
+    state.overlayIdx = (state.overlayIdx + delta + count) % count;
     audio.sfxParryCast();
   }
 
@@ -1192,8 +1368,10 @@
       startRun(0);
     } else if (state.screen === 'PAUSED') {
       if (state.overlayIdx === 1) returnToMenu();
+      else if (state.overlayIdx === 2) cycleShakeMode();
       else {
         state.screen = 'PLAYING';
+        lastTime = performance.now();
         updateTouchVisibility();
       }
     } else if (state.screen === 'GAME_OVER') {
@@ -1207,21 +1385,32 @@
 
   function getTitlePillRect() {
     const pw = Math.min(390, arena.w - 28);
-    const ph = 42;
-    return { x: arena.cx - pw * 0.5, y: arena.cy - 22, w: pw, h: ph };
+    const ph = 38;
+    return { x: arena.cx - pw * 0.5, y: arena.cy - 28, w: pw, h: ph };
+  }
+
+  function getTitleShakeRect() {
+    const sw = Math.min(220, arena.w - 40);
+    const sh = 26;
+    const pill = getTitlePillRect();
+    return { x: arena.cx - sw * 0.5, y: pill.y + pill.h + 30, w: sw, h: sh };
   }
 
   function getOverlayButtonRects() {
-    const bw = Math.min(240, arena.w - 40);
-    const bh = 42;
+    const bw = Math.min(250, arena.w - 40);
+    const bh = state.screen === 'PAUSED' ? 38 : 42;
     const baseY = state.screen === 'PAUSED'
-      ? arena.cy + 12
+      ? arena.cy + 4
       : (state.screen === 'GAME_OVER' ? arena.cy + 26 : arena.cy + 46);
-    const gap = 12;
-    return [
+    const gap = state.screen === 'PAUSED' ? 10 : 12;
+    const rects = [
       { x: arena.cx - bw * 0.5, y: baseY, w: bw, h: bh },
       { x: arena.cx - bw * 0.5, y: baseY + bh + gap, w: bw, h: bh }
     ];
+    if (state.screen === 'PAUSED') {
+      rects.push({ x: arena.cx - bw * 0.5, y: baseY + (bh + gap) * 2, w: bw, h: bh });
+    }
+    return rects;
   }
 
   function hitTestRect(x, y, r) {
@@ -1238,17 +1427,22 @@
 
   function handleCanvasClick(cx, cy) {
     if (state.screen === 'TITLE') {
-      const pill = getTitlePillRect();
-      if (hitTestRect(cx, cy, pill)) {
+      if (hitTestRect(cx, cy, getTitlePillRect())) {
         toggleDifficulty();
+        return;
+      }
+      if (hitTestRect(cx, cy, getTitleShakeRect())) {
+        cycleShakeMode();
         return;
       }
       startRun(0);
     } else if (state.screen === 'PAUSED') {
       const idx = hitTestOverlayButtons(cx, cy);
       if (idx === 1) returnToMenu();
+      else if (idx === 2) cycleShakeMode();
       else if (idx === 0) {
         state.screen = 'PLAYING';
+        lastTime = performance.now();
         updateTouchVisibility();
       }
     } else if (state.screen === 'GAME_OVER') {
@@ -1268,57 +1462,82 @@
     state.bannerTimer = dur;
   }
 
+  const MAX_SHAKE_MAG = 12;
+  const MAX_SHAKE_DUR = 0.35;
+  const MAX_HITSTOP_MS = 250;
+
+  function triggerHitStop(ms, capMs = MAX_HITSTOP_MS) {
+    const dur = Math.min(MAX_HITSTOP_MS, capMs, Math.max(0, ms));
+    const until = performance.now() + dur;
+    if (until > state.hitStopUntil) state.hitStopUntil = until;
+  }
+
   function addShake(mag, dur) {
-    state.shakeMag = Math.max(state.shakeMag, mag);
-    state.shakeTime = Math.max(state.shakeTime, dur);
+    const scale = SHAKE_SCALES[state.shakeMode] ?? 1.0;
+    if (scale <= 0) return;
+    const scaledMag = Math.min(MAX_SHAKE_MAG, mag * scale);
+    const cappedDur = Math.min(MAX_SHAKE_DUR, dur);
+    if (scaledMag <= 0 || cappedDur <= 0) return;
+    // Scale existing remaining magnitude down smoothly, never stack past MAX_SHAKE_MAG
+    const curRemainingMag = state.shakeDur > 0 ? state.shakeMag * Math.max(0, state.shakeTime / state.shakeDur) : 0;
+    state.shakeMag = Math.min(MAX_SHAKE_MAG, Math.max(curRemainingMag, scaledMag));
+    state.shakeTime = Math.min(MAX_SHAKE_DUR, Math.max(state.shakeTime, cappedDur));
+    state.shakeDur = state.shakeTime;
   }
 
   function spawnParticles(x, y, color, count, speedMin, speedMax, life = 0.45) {
     for (let i = 0; i < count; i++) {
+      if (particles.length >= MAX_PARTICLES) break;
       const a = Math.random() * Math.PI * 2;
       const spd = speedMin + Math.random() * (speedMax - speedMin);
-      particles.push({
-        x, y,
-        vx: Math.cos(a) * spd,
-        vy: Math.sin(a) * spd,
-        color,
-        life,
-        maxLife: life,
-        size: 1.8 + Math.random() * 2.4
-      });
+      const pt = particlePool.length > 0 ? particlePool.pop() : {};
+      pt.x = x;
+      pt.y = y;
+      pt.vx = Math.cos(a) * spd;
+      pt.vy = Math.sin(a) * spd;
+      pt.color = color;
+      pt.life = life;
+      pt.maxLife = life;
+      pt.size = 1.8 + Math.random() * 2.4;
+      particles.push(pt);
     }
   }
 
   function spawnFloatingText(x, y, text, color) {
+    if (floatingTexts.length > 16) floatingTexts.shift();
     floatingTexts.push({ x, y, text, color, life: 0.95, maxLife: 0.95 });
   }
 
   // ============================================================================
-  // 7. PROJECTILE & LASER SPAWNERS
+  // 7. PROJECTILE & LASER SPAWNERS (POOLED)
   // ============================================================================
   function spawnEnemyBullet(x, y, angle, speed, radius = 5.5) {
+    if (bullets.length >= MAX_BULLETS) return;
     const spdMult = state.difficulty === 'OVERCLOCKED' ? 1.18 : 1.0;
-    bullets.push({
-      owner: 'ENEMY',
-      x, y,
-      vx: Math.cos(angle) * speed * spdMult,
-      vy: Math.sin(angle) * speed * spdMult,
-      radius,
-      damage: 1,
-      reflected: false
-    });
+    const b = bulletPool.length > 0 ? bulletPool.pop() : {};
+    b.owner = 'ENEMY';
+    b.x = x;
+    b.y = y;
+    b.vx = Math.cos(angle) * speed * spdMult;
+    b.vy = Math.sin(angle) * speed * spdMult;
+    b.radius = radius;
+    b.damage = 1;
+    b.reflected = false;
+    bullets.push(b);
   }
 
   function spawnPlayerBullet(x, y, angle, speed, damage, radius = 4, reflected = false) {
-    bullets.push({
-      owner: 'PLAYER',
-      x, y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      radius,
-      damage,
-      reflected
-    });
+    if (bullets.length >= MAX_BULLETS) return;
+    const b = bulletPool.length > 0 ? bulletPool.pop() : {};
+    b.owner = 'PLAYER';
+    b.x = x;
+    b.y = y;
+    b.vx = Math.cos(angle) * speed;
+    b.vy = Math.sin(angle) * speed;
+    b.radius = radius;
+    b.damage = damage;
+    b.reflected = reflected;
+    bullets.push(b);
   }
 
   function spawnLaser(x1, y1, x2, y2, telegraphDur = 0.9, activeDur = 0.42, width = 12) {
@@ -1508,16 +1727,12 @@
         }
         const ang = Math.atan2(targetY - b.y, targetX - b.x) + (Math.random() - 0.5) * 0.05;
         const speed = 780;
-        bullets[i] = {
-          owner: 'PLAYER',
-          x: b.x,
-          y: b.y,
-          vx: Math.cos(ang) * speed,
-          vy: Math.sin(ang) * speed,
-          radius: 6.5,
-          damage: 42,
-          reflected: true
-        };
+        b.owner = 'PLAYER';
+        b.vx = Math.cos(ang) * speed;
+        b.vy = Math.sin(ang) * speed;
+        b.radius = 6.5;
+        b.damage = 42;
+        b.reflected = true;
         spawnParticles(b.x, b.y, '#00ff9d', 6, 80, 240, 0.32);
       }
     }
@@ -1534,7 +1749,7 @@
       player.totalParries += reflectedCount;
       state.score += reflectedCount * 250 * (state.difficulty === 'OVERCLOCKED' ? 1.5 : 1);
 
-      state.hitStop = Math.min(0.042, 0.018 + reflectedCount * 0.004);
+      triggerHitStop(60 + reflectedCount * 5, 90);
       addShake(6.5, 0.16);
       impulseGrid(player.x, player.y, 260, 420);
       audio.sfxParrySuccess(reflectedCount);
@@ -1566,15 +1781,22 @@
     player.invuln = 1.4;
     player.parryStreak = 0;
 
-    addShake(11, 0.28);
+    triggerHitStop(120, 120);
+    addShake(10, 0.26);
     impulseGrid(player.x, player.y, 290, 520);
-    spawnParticles(player.x, player.y, '#00f0ff', 24, 90, 340, 0.55);
+    spawnParticles(player.x, player.y, '#00f0ff', 20, 90, 340, 0.55);
     audio.sfxPlayerHit();
     haptics.rumble(260, 0.9, 1.0, 0.8, 0.8);
 
-    bullets = bullets.filter(b => b.owner !== 'ENEMY' || Math.hypot(b.x - player.x, b.y - player.y) > 150);
+    for (let bi = bullets.length - 1; bi >= 0; bi--) {
+      const eb = bullets[bi];
+      if (eb.owner === 'ENEMY' && Math.hypot(eb.x - player.x, eb.y - player.y) <= 150) {
+        releaseBulletAt(bi);
+      }
+    }
 
     if (player.shield <= 0) {
+      state.hitStopUntil = 0;
       state.screen = 'GAME_OVER';
       state.overlayIdx = 0;
       mouse.down = false;
@@ -1605,7 +1827,8 @@
     if (boss.phase === 1 && boss.hp <= boss.maxHp * 0.5 && boss.hp > 0) {
       boss.phase = 2;
       boss.attackTimer = 0.65;
-      addShake(9, 0.25);
+      triggerHitStop(120, 120);
+      addShake(8.5, 0.24);
       impulseGrid(boss.x, boss.y, 340, 560);
       spawnParticles(boss.x, boss.y, '#ffb800', 28, 100, 380, 0.6);
       haptics.rumble(180, 0.7, 0.9, 0.7, 0.7);
@@ -1618,14 +1841,15 @@
   }
 
   function onBossDefeated() {
-    addShake(15, 0.45);
+    triggerHitStop(250, 250);
+    addShake(12, 0.34);
     impulseGrid(boss.x, boss.y, 460, 750);
-    spawnParticles(boss.x, boss.y, '#00ff9d', 45, 90, 460, 0.85);
-    spawnParticles(boss.x, boss.y, '#ff2a55', 35, 70, 380, 0.75);
+    spawnParticles(boss.x, boss.y, '#00ff9d', 36, 90, 460, 0.85);
+    spawnParticles(boss.x, boss.y, '#ff2a55', 28, 70, 380, 0.75);
     audio.sfxBossExplosion();
     haptics.rumble(340, 0.95, 1.0, 1.0, 1.0);
 
-    bullets = [];
+    releaseAllBullets();
     lasers = [];
     state.score += 5000;
 
@@ -1659,6 +1883,7 @@
         ? 'NEW BEST SCORE & FASTEST CLEAR'
         : (beatScore ? 'NEW BEST SCORE' : (beatTime ? 'NEW FASTEST CLEAR' : ''));
 
+      state.hitStopUntil = 0;
       state.screen = 'VICTORY';
       state.overlayIdx = 0;
       mouse.down = false;
@@ -1801,27 +2026,31 @@
     return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
   }
 
-  function update(dt) {
+  function update(dt, rawDt = dt) {
     const input = pollInputs();
     if (state.lockHintTimer > 0) state.lockHintTimer = Math.max(0, state.lockHintTimer - dt);
+
+    // Decay screen shake in real time across all screens (never stuck on Game Over / Victory / hitStop)
+    if (state.shakeTime > 0) {
+      state.shakeTime = Math.max(0, state.shakeTime - Math.min(0.1, rawDt));
+      if (state.shakeTime <= 0) {
+        state.shakeMag = 0;
+        state.shakeDur = 0;
+      }
+    }
 
     if (state.screen !== 'PLAYING') {
       updateGrid(dt);
       return;
     }
 
-    if (state.hitStop > 0) {
-      state.hitStop -= dt;
+    if (performance.now() < state.hitStopUntil) {
       return;
     }
 
     state.runTime += dt;
     if (state.bannerTimer > 0) state.bannerTimer -= dt;
     if (state.laserHintTimer > 0) state.laserHintTimer -= dt;
-    if (state.shakeTime > 0) {
-      state.shakeTime -= dt;
-      if (state.shakeTime <= 0) state.shakeMag = 0;
-    }
 
     if (player.invuln > 0) player.invuln -= dt;
     if (player.fireCooldown > 0) player.fireCooldown -= dt;
@@ -1903,14 +2132,14 @@
 
       if (b.x < arena.x - 20 || b.x > arena.x + arena.w + 20 ||
           b.y < arena.y - 20 || b.y > arena.y + arena.h + 20) {
-        bullets.splice(i, 1);
+        releaseBulletAt(i);
         continue;
       }
 
       if (b.owner === 'ENEMY') {
         const d = Math.hypot(b.x - player.x, b.y - player.y);
         if (d < player.hitboxR + b.radius) {
-          bullets.splice(i, 1);
+          releaseBulletAt(i);
           damagePlayer();
           if (state.screen !== 'PLAYING') break;
           if (i > bullets.length) i = bullets.length;
@@ -1930,7 +2159,7 @@
           }
         }
         if (hit) {
-          bullets.splice(i, 1);
+          releaseBulletAt(i);
           const prevBossIdx = state.bossIndex;
           damageBoss(b.damage, b.x, b.y, b.reflected);
           if (state.screen !== 'PLAYING' || state.bossIndex !== prevBossIdx) break;
@@ -1964,7 +2193,7 @@
       p.vx *= 0.94;
       p.vy *= 0.94;
       p.life -= dt;
-      if (p.life <= 0) particles.splice(i, 1);
+      if (p.life <= 0) releaseParticleAt(i);
     }
 
     for (let i = floatingTexts.length - 1; i >= 0; i--) {
@@ -1981,18 +2210,31 @@
   // ============================================================================
   // 12. VECTOR RENDERER & RESPONSIVE CANVAS TEXT HELPERS
   // ============================================================================
+  const fitCache = new Map();
+  const wrapCache = new Map();
+
   function fitText(text, maxW, weight, startSize, minSize) {
-    let size = startSize;
-    while (size > minSize) {
-      ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, sans-serif`;
-      if (ctx.measureText(text).width <= maxW) break;
-      size -= 1;
+    const key = `${text}|${Math.round(maxW)}|${weight}|${startSize}|${minSize}`;
+    let cached = fitCache.get(key);
+    if (cached === undefined) {
+      let size = startSize;
+      while (size > minSize) {
+        ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        if (ctx.measureText(text).width <= maxW) break;
+        size -= 1;
+      }
+      if (fitCache.size > 256) fitCache.clear();
+      cached = size;
+      fitCache.set(key, cached);
     }
-    ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, sans-serif`;
-    return size;
+    ctx.font = `${weight} ${cached}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    return cached;
   }
 
   function wrapLines(text, maxW, fontSpec) {
+    const key = `${text}|${Math.round(maxW)}|${fontSpec}`;
+    const cached = wrapCache.get(key);
+    if (cached !== undefined) return cached;
     ctx.font = fontSpec;
     const words = text.split(' ');
     const lines = [];
@@ -2007,17 +2249,58 @@
       }
     }
     if (cur) lines.push(cur);
+    if (wrapCache.size > 128) wrapCache.clear();
+    wrapCache.set(key, lines);
     return lines;
   }
+
+  // Pre-rendered offscreen glow sprites (eliminates per-bullet ctx.shadowBlur on iPad Safari GPU)
+  function makeBulletSprite(outerRgba, midColor, coreColor, size = 36) {
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const g = c.getContext('2d');
+    const h = size * 0.5;
+    const grad = g.createRadialGradient(h, h, size * 0.06, h, h, h);
+    grad.addColorStop(0, midColor);
+    grad.addColorStop(0.38, outerRgba);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(h, h, h, 0, Math.PI * 2);
+    g.fill();
+
+    g.fillStyle = midColor;
+    g.beginPath();
+    g.arc(h, h, size * 0.22, 0, Math.PI * 2);
+    g.fill();
+
+    if (coreColor) {
+      g.fillStyle = coreColor;
+      g.beginPath();
+      g.arc(h, h, size * 0.11, 0, Math.PI * 2);
+      g.fill();
+    }
+    return c;
+  }
+
+  const bulletSprites = {
+    enemy: makeBulletSprite('rgba(255, 42, 85, 0.42)', '#ff2a55', '#ffd1dc', 36),
+    reflected: makeBulletSprite('rgba(0, 255, 157, 0.50)', '#00ff9d', '#ffffff', 42),
+    player: makeBulletSprite('rgba(0, 240, 255, 0.36)', '#00f0ff', '#e6ffff', 32),
+    playerOd: makeBulletSprite('rgba(0, 255, 157, 0.42)', '#00ff9d', '#ffffff', 34)
+  };
 
   function render() {
     ctx.fillStyle = '#050608';
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
-    if (state.shakeTime > 0 && state.shakeMag > 0) {
-      const sx = (Math.random() - 0.5) * 2 * state.shakeMag;
-      const sy = (Math.random() - 0.5) * 2 * state.shakeMag;
+    if (state.shakeTime > 0 && state.shakeMag > 0 && state.shakeMode !== 'OFF') {
+      const frac = state.shakeDur > 0 ? Math.max(0, state.shakeTime / state.shakeDur) : 0;
+      const curMag = state.shakeMag * frac;
+      const sx = (Math.random() - 0.5) * 2 * curMag;
+      const sy = (Math.random() - 0.5) * 2 * curMag;
       ctx.translate(sx, sy);
     }
 
@@ -2075,34 +2358,21 @@
       drawBoss(boss);
     }
 
-    for (const b of bullets) {
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+    for (let i = 0; i < bullets.length; i++) {
+      const b = bullets[i];
+      let sp;
+      let drawR;
       if (b.owner === 'ENEMY') {
-        ctx.fillStyle = '#ff2a55';
-        ctx.shadowColor = '#ff2a55';
-        ctx.shadowBlur = 10;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius * 0.42, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffd1dc';
-        ctx.fill();
+        sp = bulletSprites.enemy;
+        drawR = b.radius * 2.35;
       } else if (b.reflected) {
-        ctx.fillStyle = '#00ff9d';
-        ctx.shadowColor = '#00ff9d';
-        ctx.shadowBlur = 14;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius * 0.48, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
+        sp = bulletSprites.reflected;
+        drawR = b.radius * 2.55;
       } else {
-        ctx.fillStyle = odRatio > 0 ? '#00ff9d' : '#00f0ff';
-        ctx.shadowColor = odRatio > 0 ? '#00ff9d' : '#00f0ff';
-        ctx.shadowBlur = 8;
-        ctx.fill();
+        sp = odRatio > 0 ? bulletSprites.playerOd : bulletSprites.player;
+        drawR = b.radius * 2.35;
       }
-      ctx.shadowBlur = 0;
+      ctx.drawImage(sp, b.x - drawR, b.y - drawR, drawR * 2, drawR * 2);
     }
 
     if (state.screen !== 'TITLE') {
@@ -2146,10 +2416,11 @@
       ctx.save();
       ctx.beginPath();
       ctx.arc(player.x, player.y, player.parryRadius * (0.65 + prog * 0.35), 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0, 255, 157, 0.25)';
+      ctx.lineWidth = 9;
+      ctx.stroke();
       ctx.strokeStyle = '#00ff9d';
       ctx.lineWidth = 3;
-      ctx.shadowColor = '#00ff9d';
-      ctx.shadowBlur = 18;
       ctx.stroke();
       ctx.fillStyle = 'rgba(0, 255, 157, 0.12)';
       ctx.fill();
@@ -2246,8 +2517,7 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 16;
+
 
     ctx.beginPath();
     for (let i = 0; i <= sides; i++) {
@@ -2259,6 +2529,9 @@
     }
     ctx.fillStyle = 'rgba(255, 42, 85, 0.16)';
     ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 42, 85, 0.28)';
+    ctx.lineWidth = 8;
+    ctx.stroke();
     ctx.strokeStyle = color;
     ctx.lineWidth = 2.5;
     ctx.stroke();
@@ -2368,9 +2641,10 @@
       const r = rects[i];
       const selected = state.overlayIdx === i;
       const isMenuBtn = i === 1;
-      const accent = isMenuBtn ? '#ffb800' : '#00ff9d';
+      const isShakeBtn = i === 2;
+      const accent = isMenuBtn ? '#ffb800' : (isShakeBtn ? '#00f0ff' : '#00ff9d');
       ctx.fillStyle = selected
-        ? (isMenuBtn ? 'rgba(255, 184, 0, 0.2)' : 'rgba(0, 255, 157, 0.2)')
+        ? (isMenuBtn ? 'rgba(255, 184, 0, 0.2)' : (isShakeBtn ? 'rgba(0, 240, 255, 0.18)' : 'rgba(0, 255, 157, 0.2)'))
         : 'rgba(10, 14, 20, 0.72)';
       ctx.strokeStyle = selected ? accent : 'rgba(255, 255, 255, 0.25)';
       ctx.lineWidth = selected ? 2 : 1.2;
@@ -2423,7 +2697,7 @@
         const lockNote = 'CLEAR STANDARD TO UNLOCK OVERCLOCKED';
         fitText(lockNote, maxW, '700', 11, 9);
         ctx.fillStyle = '#ffb800';
-        ctx.fillText(lockNote, arena.cx, pill.y + pill.h + 18);
+        ctx.fillText(lockNote, arena.cx, pill.y + pill.h + 16);
       } else {
         const stdB = state.best.STANDARD;
         const ocB = state.best.OVERCLOCKED;
@@ -2436,8 +2710,20 @@
         const bestLine = `${stdTxt}   |   ${ocTxt}`;
         fitText(bestLine, maxW, '600', 11, 9);
         ctx.fillStyle = '#6c8594';
-        ctx.fillText(bestLine, arena.cx, pill.y + pill.h + 18);
+        ctx.fillText(bestLine, arena.cx, pill.y + pill.h + 16);
       }
+
+      // Screen Shake Option Pill on Title Screen
+      const sp = getTitleShakeRect();
+      ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
+      ctx.strokeStyle = state.shakeMode === 'OFF' ? 'rgba(255, 255, 255, 0.28)' : 'rgba(0, 240, 255, 0.55)';
+      ctx.lineWidth = 1.2;
+      ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
+      ctx.strokeRect(sp.x, sp.y, sp.w, sp.h);
+      const shakeLbl = `SCREEN SHAKE: ${state.shakeMode}`;
+      fitText(shakeLbl, sp.w - 16, '700', 11, 9);
+      ctx.fillStyle = state.shakeMode === 'OFF' ? '#9ab2c0' : '#00f0ff';
+      ctx.fillText(shakeLbl, arena.cx, sp.y + 17);
 
       // Responsive wrapped control legend (Mac, Xbox, Touch)
       const legendItems = [
@@ -2446,7 +2732,7 @@
         'TOUCH: Left Stick Move | Right Stick Aim & Fire | PARRY Reflect',
         'PARRY CRIMSON SHOTS TO VENT + 3s OVERDRIVE | 3 PARRIES = +1 SHIELD'
       ];
-      let ly = pill.y + pill.h + 44;
+      let ly = sp.y + sp.h + 24;
       const legendFontSize = narrow ? 10 : 12;
       const legendFont = `500 ${legendFontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
       const lineStep = narrow ? 14 : 18;
@@ -2476,14 +2762,14 @@
     } else if (state.screen === 'PAUSED') {
       fitText('SYSTEM PAUSED', maxW, '900', 30, 20);
       ctx.fillStyle = '#00f0ff';
-      ctx.fillText('SYSTEM PAUSED', arena.cx, arena.cy - 44);
+      ctx.fillText('SYSTEM PAUSED', arena.cx, arena.cy - 48);
 
       const sub = 'D-PAD / ARROWS TO SELECT  •  A / SPACE CONFIRM  •  B / ESC MENU';
       fitText(sub, maxW, '600', 12, 9);
       ctx.fillStyle = '#9ab2c0';
-      ctx.fillText(sub, arena.cx, arena.cy - 14);
+      ctx.fillText(sub, arena.cx, arena.cy - 18);
 
-      drawOverlayButtons(['RESUME', 'BACK TO MENU']);
+      drawOverlayButtons(['RESUME', 'BACK TO MENU', `SCREEN SHAKE: ${state.shakeMode}`]);
 
     } else if (state.screen === 'GAME_OVER') {
       fitText('HULL DESTROYED', maxW, '900', 32, 20);
@@ -2527,26 +2813,35 @@
   // ============================================================================
   // 13. TOP BAR CONTROLS
   // ============================================================================
-  document.getElementById('audioBtn').addEventListener('click', () => {
+  document.getElementById('audioBtn').addEventListener('click', (e) => {
+    e.currentTarget.blur();
     audio.init();
     audio.toggle();
   });
 
-  document.getElementById('pauseBtn').addEventListener('click', () => {
+  document.getElementById('shakeBtn').addEventListener('click', (e) => {
+    e.currentTarget.blur();
+    audio.init();
+    cycleShakeMode();
+  });
+
+  document.getElementById('pauseBtn').addEventListener('click', (e) => {
+    e.currentTarget.blur();
     togglePause();
   });
 
   // ============================================================================
-  // 14. FIXED-TIMESTEP LOOP
+  // 14. FIXED-TIMESTEP LOOP (1/30s DT CLAMP + REAL-TIME HITSTOP)
   // ============================================================================
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', scheduleResize);
   resize();
 
   let lastTime = performance.now();
   function loop(now) {
-    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    const rawDt = Math.max(0, (now - lastTime) / 1000);
+    const dt = Math.min(1 / 30, rawDt);
     lastTime = now;
-    update(dt);
+    update(dt, rawDt);
     render();
     requestAnimationFrame(loop);
   }
