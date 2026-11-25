@@ -1,0 +1,2557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PARRY VECTOR // GAUNTLET</title>
+<style>
+  :root {
+    --bg: #050608;
+    --cyan: #00f0ff;
+    --crimson: #ff2a55;
+    --emerald: #00ff9d;
+    --amber: #ffb800;
+    --text: #e6f4f8;
+    --muted: #6c8594;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    touch-action: none;
+  }
+  #gameCanvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+  }
+  #topBar {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    z-index: 20;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .hud-btn {
+    background: rgba(10, 14, 20, 0.84);
+    border: 1px solid rgba(0, 240, 255, 0.35);
+    color: var(--cyan);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: all 0.15s ease;
+  }
+  .hud-btn:hover, .hud-btn:active {
+    background: rgba(0, 240, 255, 0.18);
+    border-color: var(--cyan);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+  }
+  #gamepadBadge {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    padding: 5px 9px;
+    border-radius: 4px;
+    background: rgba(10, 14, 20, 0.84);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--muted);
+    white-space: nowrap;
+    transition: all 0.2s ease;
+  }
+  #gamepadBadge.connected {
+    border-color: rgba(0, 255, 157, 0.5);
+    color: var(--emerald);
+    box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+  }
+  @media (max-width: 600px) {
+    #topBar {
+      top: max(6px, env(safe-area-inset-top));
+      right: max(8px, env(safe-area-inset-right));
+      gap: 4px;
+    }
+    .hud-btn {
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      padding: 4px 7px;
+    }
+    #gamepadBadge {
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      padding: 4px 6px;
+    }
+  }
+  #touchControls {
+    display: none;
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 15;
+  }
+  #touchControls.active {
+    display: block;
+  }
+  #touchControls.menu-hidden {
+    opacity: 0.16;
+  }
+  #touchControls.menu-hidden * {
+    pointer-events: none !important;
+  }
+  .stick-zone {
+    position: absolute;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    width: 132px;
+    height: 132px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(0, 240, 255, 0.25);
+    background: rgba(0, 240, 255, 0.04);
+    pointer-events: auto;
+  }
+  #moveZone { left: max(22px, env(safe-area-inset-left)); }
+  #aimZone { right: max(22px, env(safe-area-inset-right)); }
+  .stick-knob {
+    position: absolute;
+    width: 48px;
+    height: 48px;
+    left: 50%;
+    top: 50%;
+    margin-left: -24px;
+    margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(0, 240, 255, 0.28);
+    border: 1.5px solid var(--cyan);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+    pointer-events: none;
+  }
+  #touchParryBtn {
+    position: absolute;
+    right: max(172px, calc(env(safe-area-inset-right) + 172px));
+    bottom: max(36px, calc(env(safe-area-inset-bottom) + 14px));
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    background: rgba(0, 255, 157, 0.14);
+    border: 2px solid var(--emerald);
+    color: var(--emerald);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    box-shadow: 0 0 18px rgba(0, 255, 157, 0.25);
+  }
+  #touchParryBtn:active {
+    background: rgba(0, 255, 157, 0.38);
+    transform: scale(0.94);
+  }
+  @media (max-width: 600px) {
+    .stick-zone {
+      bottom: max(14px, env(safe-area-inset-bottom));
+      width: 104px;
+      height: 104px;
+    }
+    #moveZone { left: max(12px, env(safe-area-inset-left)); }
+    #aimZone { right: max(12px, env(safe-area-inset-right)); }
+    .stick-knob {
+      width: 38px;
+      height: 38px;
+      margin-left: -19px;
+      margin-top: -19px;
+    }
+    #touchParryBtn {
+      left: 50%;
+      right: auto;
+      margin-left: -36px;
+      bottom: max(42px, calc(env(safe-area-inset-bottom) + 28px));
+      width: 72px;
+      height: 72px;
+      font-size: 11px;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="topBar">
+  <div id="gamepadBadge">INPUT: KEYBOARD / MOUSE</div>
+  <button class="hud-btn" id="audioBtn" title="Toggle Synth Audio">AUDIO: ON</button>
+  <button class="hud-btn" id="pauseBtn" title="Pause or Resume (Esc / P / Start — Esc again or B for Menu)">PAUSE</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="touchControls">
+  <div id="moveZone" class="stick-zone"><div id="moveKnob" class="stick-knob"></div></div>
+  <div id="touchParryBtn">PARRY</div>
+  <div id="aimZone" class="stick-zone"><div id="aimKnob" class="stick-knob"></div></div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ============================================================================
+  // 0. PERSISTENCE (UNLOCK + BESTS PER MODE)
+  // ============================================================================
+  const SAVE_KEY = 'parry_vector_gauntlet_v1';
+
+  function loadSave() {
+    const fallback = {
+      overclockedUnlocked: false,
+      best: {
+        STANDARD: { score: 0, time: null },
+        OVERCLOCKED: { score: 0, time: null }
+      }
+    };
+    try {
+      const raw = window.localStorage.getItem(SAVE_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return fallback;
+      const b = parsed.best || {};
+      return {
+        overclockedUnlocked: Boolean(parsed.overclockedUnlocked),
+        best: {
+          STANDARD: {
+            score: Number.isFinite(b.STANDARD && b.STANDARD.score) ? b.STANDARD.score : 0,
+            time: (b.STANDARD && Number.isFinite(b.STANDARD.time) && b.STANDARD.time > 0) ? b.STANDARD.time : null
+          },
+          OVERCLOCKED: {
+            score: Number.isFinite(b.OVERCLOCKED && b.OVERCLOCKED.score) ? b.OVERCLOCKED.score : 0,
+            time: (b.OVERCLOCKED && Number.isFinite(b.OVERCLOCKED.time) && b.OVERCLOCKED.time > 0) ? b.OVERCLOCKED.time : null
+          }
+        }
+      };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function writeSave() {
+    try {
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify({
+        overclockedUnlocked: state.overclockedUnlocked,
+        best: state.best
+      }));
+    } catch (_) {}
+  }
+
+  // ============================================================================
+  // 1. CANVAS & RESPONSIVE ARENA SCALING
+  // ============================================================================
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  let W = window.innerWidth;
+  let H = window.innerHeight;
+  let DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  const arena = {
+    x: 0, y: 0, w: 960, h: 640, cx: 480, cy: 320, pad: 24
+  };
+
+  function isNarrow() {
+    return W < 640;
+  }
+
+  function updateInputBadge() {
+    const badge = document.getElementById('gamepadBadge');
+    const audioBtn = document.getElementById('audioBtn');
+    const narrow = isNarrow();
+    if (padState.connected) {
+      badge.textContent = narrow ? 'XBOX PAD' : 'XBOX CONTROLLER // HAPTICS READY';
+      badge.classList.add('connected');
+    } else if (touchState.active) {
+      badge.textContent = narrow ? 'TOUCH' : 'INPUT: TOUCH TWIN-STICK';
+      badge.classList.remove('connected');
+    } else {
+      badge.textContent = narrow ? 'KBM' : 'INPUT: KEYBOARD / MOUSE';
+      badge.classList.remove('connected');
+    }
+    audioBtn.textContent = narrow
+      ? (audio.enabled ? 'SFX: ON' : 'SFX: OFF')
+      : (audio.enabled ? 'AUDIO: ON' : 'AUDIO: OFF');
+  }
+
+  function updateTouchVisibility() {
+    const tc = document.getElementById('touchControls');
+    if (touchState.active && !padState.connected) {
+      tc.classList.add('active');
+      if (state.screen === 'PLAYING') tc.classList.remove('menu-hidden');
+      else tc.classList.add('menu-hidden');
+    } else {
+      tc.classList.remove('active');
+      tc.classList.remove('menu-hidden');
+    }
+  }
+
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    const narrow = isNarrow();
+    const topMargin = narrow ? 72 : 76;
+    const bottomMargin = touchState.active ? (W <= 600 ? 140 : 168) : (narrow ? 18 : 26);
+    const sideMargin = narrow ? 14 : 28;
+    const availW = Math.max(280, W - sideMargin * 2);
+    const availH = Math.max(240, H - topMargin - bottomMargin);
+
+    arena.w = Math.min(1120, availW);
+    arena.h = Math.min(720, availH);
+    arena.x = (W - arena.w) * 0.5;
+    arena.y = topMargin + (availH - arena.h) * 0.5;
+    arena.cx = arena.x + arena.w * 0.5;
+    arena.cy = arena.y + arena.h * 0.5;
+    initGrid();
+    updateInputBadge();
+  }
+
+  // ============================================================================
+  // 2. REACTIVE SPRING-LATTICE VECTOR GRID
+  // ============================================================================
+  let gridCols = 24;
+  let gridRows = 16;
+  let gridPoints = [];
+
+  function initGrid() {
+    gridCols = Math.max(10, Math.round(arena.w / 44));
+    gridRows = Math.max(8, Math.round(arena.h / 44));
+    gridPoints = [];
+    for (let r = 0; r <= gridRows; r++) {
+      const row = [];
+      for (let c = 0; c <= gridCols; c++) {
+        const bx = arena.x + (arena.w * c) / gridCols;
+        const by = arena.y + (arena.h * r) / gridRows;
+        row.push({ bx, by, x: bx, y: by, vx: 0, vy: 0 });
+      }
+      gridPoints.push(row);
+    }
+  }
+
+  function impulseGrid(ix, iy, radius, strength) {
+    const r2 = radius * radius;
+    for (let r = 1; r < gridRows; r++) {
+      for (let c = 1; c < gridCols; c++) {
+        const p = gridPoints[r][c];
+        const dx = p.x - ix;
+        const dy = p.y - iy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < r2 && d2 > 0.01) {
+          const d = Math.sqrt(d2);
+          const falloff = (1 - d / radius);
+          const f = falloff * falloff * strength;
+          p.vx += (dx / d) * f;
+          p.vy += (dy / d) * f;
+        }
+      }
+    }
+  }
+
+  function updateGrid(dt) {
+    const stiffness = 135;
+    const damping = 0.86;
+    for (let r = 1; r < gridRows; r++) {
+      for (let c = 1; c < gridCols; c++) {
+        const p = gridPoints[r][c];
+        const ax = (p.bx - p.x) * stiffness;
+        const ay = (p.by - p.y) * stiffness;
+        p.vx = (p.vx + ax * dt) * damping;
+        p.vy = (p.vy + ay * dt) * damping;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      }
+    }
+  }
+
+  function drawGrid(overdriveRatio) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(arena.x, arena.y, arena.w, arena.h);
+    ctx.clip();
+
+    const baseAlpha = 0.075 + overdriveRatio * 0.075;
+    ctx.strokeStyle = overdriveRatio > 0.05
+      ? `rgba(0, 255, 157, ${baseAlpha.toFixed(3)})`
+      : `rgba(0, 240, 255, ${baseAlpha.toFixed(3)})`;
+    ctx.lineWidth = 1;
+
+    for (let r = 0; r <= gridRows; r++) {
+      ctx.beginPath();
+      for (let c = 0; c <= gridCols; c++) {
+        const p = gridPoints[r][c];
+        if (c === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+    for (let c = 0; c <= gridCols; c++) {
+      ctx.beginPath();
+      for (let r = 0; r <= gridRows; r++) {
+        const p = gridPoints[r][c];
+        if (r === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ============================================================================
+  // 3. PROCEDURAL WEB AUDIO API DARK-SYNTH & SFX ENGINE
+  // ============================================================================
+  const audio = {
+    ctx: null,
+    enabled: true,
+    master: null,
+    musicFilter: null,
+    stepTimer: 0,
+    stepIndex: 0,
+    bpm: 128,
+
+    init() {
+      if (this.ctx) {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        return;
+      }
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      this.ctx = new AudioCtx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.enabled ? 0.28 : 0.0;
+      this.master.connect(this.ctx.destination);
+
+      this.musicFilter = this.ctx.createBiquadFilter();
+      this.musicFilter.type = 'lowpass';
+      this.musicFilter.frequency.value = 720;
+      this.musicFilter.Q.value = 3.2;
+      this.musicFilter.connect(this.master);
+    },
+
+    toggle() {
+      this.enabled = !this.enabled;
+      if (this.master && this.ctx) {
+        this.master.gain.setTargetAtTime(this.enabled ? 0.28 : 0.0, this.ctx.currentTime, 0.03);
+      }
+      updateInputBadge();
+    },
+
+    updateMusic(dt, playing, overdrive, bossIdx) {
+      if (!this.ctx || !this.enabled || !playing) return;
+      if (this.ctx.state === 'suspended') return;
+
+      const targetCutoff = overdrive > 0 ? 3600 : (680 + bossIdx * 220);
+      this.musicFilter.frequency.setTargetAtTime(targetCutoff, this.ctx.currentTime, 0.08);
+
+      const stepDur = 60 / this.bpm / 4; // 16th notes
+      this.stepTimer += dt;
+      while (this.stepTimer >= stepDur) {
+        this.stepTimer -= stepDur;
+        this.triggerSeqStep(this.stepIndex, overdrive > 0, bossIdx);
+        this.stepIndex = (this.stepIndex + 1) % 16;
+      }
+    },
+
+    triggerSeqStep(step, isOverdrive, bossIdx) {
+      const now = this.ctx.currentTime;
+      const roots = [55.0, 49.0, 43.65]; // A1, G1, F1
+      const root = roots[bossIdx % roots.length];
+      const bassNotes = [1, 1, 2, 1, 1, 1.5, 1, 1.333, 1, 1, 2, 1, 1.5, 1.333, 1.189, 1];
+      const freq = root * bassNotes[step];
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = isOverdrive ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(step % 4 === 0 ? 0.24 : 0.14, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+
+      osc.connect(gain);
+      gain.connect(this.musicFilter);
+      osc.start(now);
+      osc.stop(now + 0.12);
+
+      if (step % 4 === 0) {
+        const kOsc = this.ctx.createOscillator();
+        const kGain = this.ctx.createGain();
+        kOsc.type = 'sine';
+        kOsc.frequency.setValueAtTime(125, now);
+        kOsc.frequency.exponentialRampToValueAtTime(34, now + 0.09);
+        kGain.gain.setValueAtTime(0.32, now);
+        kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        kOsc.connect(kGain);
+        kGain.connect(this.master);
+        kOsc.start(now);
+        kOsc.stop(now + 0.11);
+      }
+
+      if (isOverdrive && step % 2 === 1) {
+        const aOsc = this.ctx.createOscillator();
+        const aGain = this.ctx.createGain();
+        const intervals = [4, 6, 7.12, 8, 9.5, 8, 6, 4];
+        aOsc.type = 'sine';
+        aOsc.frequency.setValueAtTime(root * intervals[(step >> 1) % intervals.length], now);
+        aGain.gain.setValueAtTime(0.07, now);
+        aGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        aOsc.connect(aGain);
+        aGain.connect(this.master);
+        aOsc.start(now);
+        aOsc.stop(now + 0.1);
+      }
+    },
+
+    sfxShoot(heatRatio, overdrive) {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = overdrive ? 'sawtooth' : 'square';
+      const baseF = overdrive ? 760 : (420 + heatRatio * 340);
+      osc.frequency.setValueAtTime(baseF, now);
+      osc.frequency.exponentialRampToValueAtTime(130, now + 0.055);
+      gain.gain.setValueAtTime(overdrive ? 0.11 : 0.075, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(now);
+      osc.stop(now + 0.065);
+    },
+
+    sfxParryCast() {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(280, now);
+      osc.frequency.exponentialRampToValueAtTime(640, now + 0.08);
+      gain.gain.setValueAtTime(0.16, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(now);
+      osc.stop(now + 0.095);
+    },
+
+    sfxParrySuccess(count) {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      const freqs = [587.33, 880.0, 1174.66 + Math.min(count, 8) * 45];
+      freqs.forEach((f, idx) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = idx === 0 ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(f, now + idx * 0.018);
+        osc.frequency.exponentialRampToValueAtTime(f * 1.18, now + idx * 0.018 + 0.22);
+        gain.gain.setValueAtTime(0.22, now + idx * 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.018 + 0.24);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(now + idx * 0.018);
+        osc.stop(now + idx * 0.018 + 0.25);
+      });
+    },
+
+    sfxReflectHit() {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(190, now);
+      osc.frequency.exponentialRampToValueAtTime(48, now + 0.11);
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(now);
+      osc.stop(now + 0.125);
+    },
+
+    sfxOverheat() {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      [0, 0.09].forEach((offset) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(210, now + offset);
+        osc.frequency.linearRampToValueAtTime(140, now + offset + 0.07);
+        gain.gain.setValueAtTime(0.2, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.075);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.08);
+      });
+    },
+
+    sfxPlayerHit() {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(32, now + 0.34);
+      gain.gain.setValueAtTime(0.38, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(now);
+      osc.stop(now + 0.37);
+    },
+
+    sfxBossExplosion() {
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      for (let i = 0; i < 4; i++) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = i % 2 === 0 ? 'sawtooth' : 'sine';
+        osc.frequency.setValueAtTime(140 - i * 22, now + i * 0.06);
+        osc.frequency.exponentialRampToValueAtTime(24, now + i * 0.06 + 0.45);
+        gain.gain.setValueAtTime(0.32, now + i * 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.06 + 0.48);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(now + i * 0.06);
+        osc.stop(now + i * 0.06 + 0.5);
+      }
+    }
+  };
+
+  // ============================================================================
+  // 4. XBOX WIRELESS CONTROLLER & MULTI-PLATFORM HAPTICS ENGINE
+  // ============================================================================
+  const haptics = {
+    rumble(durationMs, weak, strong, leftTrig = 0, rightTrig = 0) {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      for (let i = 0; i < pads.length; i++) {
+        const gp = pads[i];
+        if (!gp || !gp.connected) continue;
+        const act = gp.vibrationActuator;
+        if (!act || !act.playEffect) continue;
+        const effects = act.effects || [];
+        try {
+          if (effects.includes('trigger-rumble')) {
+            act.playEffect('trigger-rumble', {
+              startDelay: 0,
+              duration: durationMs,
+              weakMagnitude: Math.min(1, Math.max(0, weak)),
+              strongMagnitude: Math.min(1, Math.max(0, strong)),
+              leftTrigger: Math.min(1, Math.max(0, leftTrig)),
+              rightTrigger: Math.min(1, Math.max(0, rightTrig))
+            }).catch(() => {});
+          } else {
+            act.playEffect('dual-rumble', {
+              startDelay: 0,
+              duration: durationMs,
+              weakMagnitude: Math.min(1, Math.max(0, weak)),
+              strongMagnitude: Math.min(1, Math.max(0, strong))
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+    }
+  };
+
+  // ============================================================================
+  // 5. INPUT MANAGER (XBOX CONTROLLER + KEYBOARD/MOUSE + IPADOS/IOS TOUCH)
+  // ============================================================================
+  const keys = {};
+  const mouse = { x: 0, y: 0, down: false, active: false };
+  let lastTouchTime = -10000;
+  const touchState = {
+    active: false,
+    moveId: null, moveVec: { x: 0, y: 0 },
+    aimId: null, aimVec: { x: 0, y: 0 }, aimActive: false,
+    parryQueued: false
+  };
+
+  const padState = {
+    connected: false,
+    name: '',
+    prevA: false,
+    prevB: false,
+    prevParry: false,
+    prevStart: false,
+    prevUp: false,
+    prevDown: false,
+    prevLeft: false,
+    prevRight: false
+  };
+
+  const moveZone = document.getElementById('moveZone');
+  const moveKnob = document.getElementById('moveKnob');
+  const aimZone = document.getElementById('aimZone');
+  const aimKnob = document.getElementById('aimKnob');
+  const touchParryBtn = document.getElementById('touchParryBtn');
+
+  function resetMoveStick() {
+    touchState.moveId = null;
+    touchState.moveVec.x = 0;
+    touchState.moveVec.y = 0;
+    moveKnob.style.transform = 'translate(0px, 0px)';
+  }
+
+  function resetAimStick() {
+    touchState.aimId = null;
+    touchState.aimActive = false;
+    touchState.aimVec.x = 0;
+    touchState.aimVec.y = 0;
+    aimKnob.style.transform = 'translate(0px, 0px)';
+  }
+
+  function clearAllInputs() {
+    for (const k of Object.keys(keys)) keys[k] = false;
+    mouse.down = false;
+    resetMoveStick();
+    resetAimStick();
+    touchState.parryQueued = false;
+    padState.prevA = false;
+    padState.prevB = false;
+    padState.prevParry = false;
+    padState.prevStart = false;
+    padState.prevUp = false;
+    padState.prevDown = false;
+    padState.prevLeft = false;
+    padState.prevRight = false;
+  }
+
+  window.addEventListener('blur', clearAllInputs);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) clearAllInputs();
+  });
+
+  window.addEventListener('gamepadconnected', (e) => {
+    padState.connected = true;
+    padState.name = e.gamepad.id || 'XBOX CONTROLLER';
+    touchState.active = false;
+    resetMoveStick();
+    resetAimStick();
+    updateTouchVisibility();
+    updateInputBadge();
+    haptics.rumble(90, 0.5, 0.3, 0.6, 0.6);
+  });
+
+  window.addEventListener('gamepaddisconnected', () => {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const stillConnected = Array.from(pads).some(p => p && p.connected);
+    if (!stillConnected) {
+      padState.connected = false;
+      clearAllInputs();
+      updateInputBadge();
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    audio.init();
+    keys[e.code] = true;
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) {
+      e.preventDefault();
+    }
+
+    if (state.screen === 'PLAYING') {
+      if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        queueParryOrConfirm();
+      } else if (e.code === 'Escape' || e.code === 'KeyP') {
+        togglePause();
+      }
+      return;
+    }
+
+    // Menu / Overlay keyboard navigation
+    if (state.screen === 'TITLE') {
+      if (e.code === 'Tab' || e.code === 'KeyM' || e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        toggleDifficulty();
+      } else if (e.code === 'Space' || e.code === 'Enter') {
+        handleConfirmAction();
+      }
+    } else if (state.screen === 'PAUSED' || state.screen === 'GAME_OVER' || state.screen === 'VICTORY') {
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'KeyW' || e.code === 'KeyS' || e.code === 'Tab') {
+        cycleOverlaySelection(1);
+      } else if (e.code === 'Space' || e.code === 'Enter') {
+        handleConfirmAction();
+      } else if (e.code === 'KeyB' || e.code === 'Backspace' || e.code === 'Escape') {
+        returnToMenu();
+      } else if (state.screen === 'PAUSED' && e.code === 'KeyP') {
+        togglePause();
+      }
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (performance.now() - lastTouchTime < 600) return;
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+    if (state.screen === 'PAUSED' || state.screen === 'GAME_OVER' || state.screen === 'VICTORY') {
+      const idx = hitTestOverlayButtons(e.clientX, e.clientY);
+      if (idx !== -1) state.overlayIdx = idx;
+    }
+  });
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (performance.now() - lastTouchTime < 600) return;
+    audio.init();
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+    if (e.button === 0) {
+      if (state.screen === 'PLAYING') {
+        mouse.down = true;
+      } else {
+        handleCanvasClick(e.clientX, e.clientY);
+      }
+    } else if (e.button === 2) {
+      if (state.screen === 'PLAYING') queueParryOrConfirm();
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) mouse.down = false;
+  });
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  function enableTouchUI() {
+    if (!touchState.active && !padState.connected) {
+      touchState.active = true;
+      resize();
+      updateTouchVisibility();
+      updateInputBadge();
+    }
+  }
+
+  window.addEventListener('touchstart', (e) => {
+    lastTouchTime = performance.now();
+    audio.init();
+    const prevScreen = state.screen;
+    const t0 = e.changedTouches[0];
+    const hitPill = (prevScreen === 'TITLE' && e.target === canvas && t0)
+      ? hitTestRect(t0.clientX, t0.clientY, getTitlePillRect())
+      : false;
+    enableTouchUI();
+    if (prevScreen !== 'PLAYING' && e.target === canvas && t0) {
+      if (hitPill) toggleDifficulty();
+      else handleCanvasClick(t0.clientX, t0.clientY);
+    }
+  }, { passive: true });
+
+  function updateStickTouch(zone, knob, touch, outVec) {
+    const rect = zone.getBoundingClientRect();
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    const maxR = rect.width * 0.36;
+    let dx = touch.clientX - cx;
+    let dy = touch.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    outVec.x = dx / maxR;
+    outVec.y = dy / maxR;
+  }
+
+  moveZone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    touchState.moveId = t.identifier;
+    updateStickTouch(moveZone, moveKnob, t, touchState.moveVec);
+  }, { passive: false });
+
+  moveZone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === touchState.moveId) {
+        updateStickTouch(moveZone, moveKnob, t, touchState.moveVec);
+      }
+    }
+  }, { passive: false });
+
+  function onMoveEnd(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === touchState.moveId) resetMoveStick();
+    }
+  }
+  moveZone.addEventListener('touchend', onMoveEnd);
+  moveZone.addEventListener('touchcancel', onMoveEnd);
+
+  aimZone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    touchState.aimId = t.identifier;
+    touchState.aimActive = true;
+    updateStickTouch(aimZone, aimKnob, t, touchState.aimVec);
+  }, { passive: false });
+
+  aimZone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === touchState.aimId) {
+        updateStickTouch(aimZone, aimKnob, t, touchState.aimVec);
+      }
+    }
+  }, { passive: false });
+
+  function onAimEnd(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === touchState.aimId) resetAimStick();
+    }
+  }
+  aimZone.addEventListener('touchend', onAimEnd);
+  aimZone.addEventListener('touchcancel', onAimEnd);
+
+  window.addEventListener('touchcancel', () => {
+    resetMoveStick();
+    resetAimStick();
+  });
+
+  touchParryBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    audio.init();
+    if (state.screen === 'PLAYING') queueParryOrConfirm();
+  }, { passive: false });
+
+  // ============================================================================
+  // 6. GAME STATE, PLAYER, BOSSES, PROJECTILES & TELEGRAPHS
+  // ============================================================================
+  const initialSave = loadSave();
+  const state = {
+    screen: 'TITLE', // TITLE | PLAYING | PAUSED | GAME_OVER | VICTORY
+    difficulty: 'STANDARD', // STANDARD | OVERCLOCKED
+    overclockedUnlocked: initialSave.overclockedUnlocked,
+    best: initialSave.best,
+    bossIndex: 0,
+    score: 0,
+    runTime: 0,
+    hitStop: 0,
+    shakeTime: 0,
+    shakeMag: 0,
+    bannerTimer: 0,
+    bannerText: '',
+    bannerSub: '',
+    parryBufferTimer: 0,
+    overlayIdx: 0,
+    laserHintShown: false,
+    laserHintTimer: 0,
+    lockHintTimer: 0,
+    victoryMsg: '',
+    newBestNote: ''
+  };
+
+  const player = {
+    x: 480, y: 500,
+    vx: 0, vy: 0,
+    aimAngle: -Math.PI / 2,
+    speed: 330,
+    hitboxR: 3.5,
+    shield: 3,
+    maxShield: 3,
+    invuln: 0,
+    heat: 0,
+    overheated: false,
+    overheatTimer: 0,
+    overdriveTimer: 0,
+    fireCooldown: 0,
+    parryActiveTimer: 0,
+    parryCooldown: 0,
+    parryRadius: 68,
+    parryStreak: 0,
+    totalParries: 0
+  };
+
+  let bullets = [];
+  let lasers = [];
+  let particles = [];
+  let floatingTexts = [];
+  let boss = null;
+
+  const BOSS_DEFS = [
+    {
+      name: '01 // ROTATIONAL LATTICE',
+      subtitle: 'GEOMETRIC ROTOR & RADIAL SALVO ENGINE',
+      hp: 1650,
+      radius: 36,
+      color: '#ff2a55'
+    },
+    {
+      name: '02 // LASER-ANCHOR CROSSFIRE',
+      subtitle: 'PERIMETER BEAM NODES & VECTOR VOLLEYS',
+      hp: 2150,
+      radius: 38,
+      color: '#ff3b7f'
+    },
+    {
+      name: '03 // SYNCHRONIZED TWIN CORES',
+      subtitle: 'DUAL HARMONIC RESONANCE REACTORS',
+      hp: 2700,
+      radius: 32,
+      color: '#ff1e56'
+    }
+  ];
+
+  function createBoss(idx) {
+    const def = BOSS_DEFS[idx];
+    const hpMult = state.difficulty === 'OVERCLOCKED' ? 1.22 : 1.0;
+    const maxHp = Math.round(def.hp * hpMult);
+    const b = {
+      index: idx,
+      name: def.name,
+      subtitle: def.subtitle,
+      x: arena.cx,
+      y: arena.y + arena.h * 0.27,
+      vx: 0,
+      vy: 0,
+      hp: maxHp,
+      maxHp: maxHp,
+      radius: def.radius,
+      angle: 0,
+      phase: 1,
+      timer: 0,
+      attackTimer: 0.9,
+      patternStep: 0,
+      flashTimer: 0,
+      anchors: [],
+      cores: []
+    };
+
+    if (idx === 1) {
+      b.anchors = [
+        { rx: 0.14, ry: 0.18, x: 0, y: 0 },
+        { rx: 0.86, ry: 0.18, x: 0, y: 0 },
+        { rx: 0.14, ry: 0.82, x: 0, y: 0 },
+        { rx: 0.86, ry: 0.82, x: 0, y: 0 }
+      ];
+    } else if (idx === 2) {
+      b.cores = [
+        { x: arena.cx - 120, y: arena.y + arena.h * 0.28, angle: 0, radius: 28 },
+        { x: arena.cx + 120, y: arena.y + arena.h * 0.28, angle: Math.PI, radius: 28 }
+      ];
+    }
+    return b;
+  }
+
+  function resetPlayerForFight(fullReset) {
+    player.x = arena.cx;
+    player.y = arena.y + arena.h * 0.78;
+    player.vx = 0;
+    player.vy = 0;
+    player.aimAngle = -Math.PI / 2;
+    player.shield = player.maxShield; // Always restore full shield on a fresh run or checkpoint retry
+    player.parryStreak = 0;
+    player.heat = 0;
+    player.overheated = false;
+    player.overheatTimer = 0;
+    player.overdriveTimer = 0;
+    player.fireCooldown = 0;
+    player.parryActiveTimer = 0;
+    player.parryCooldown = 0;
+    player.invuln = 1.0;
+    if (fullReset) {
+      player.totalParries = 0;
+      state.score = 0;
+      state.runTime = 0;
+    }
+  }
+
+  function startRun(bossIdx = 0) {
+    audio.init();
+    if (state.difficulty === 'OVERCLOCKED' && !state.overclockedUnlocked) {
+      state.difficulty = 'STANDARD';
+    }
+    state.bossIndex = bossIdx;
+    const isFreshRun = bossIdx === 0 || state.difficulty === 'OVERCLOCKED';
+    if (state.difficulty === 'OVERCLOCKED') {
+      state.bossIndex = 0;
+    }
+    resetPlayerForFight(isFreshRun);
+    bullets = [];
+    lasers = [];
+    particles = [];
+    floatingTexts = [];
+    state.hitStop = 0;
+    state.shakeTime = 0;
+    state.shakeMag = 0;
+    state.parryBufferTimer = 0;
+    state.laserHintShown = false;
+    state.laserHintTimer = 0;
+    state.overlayIdx = 0;
+    boss = createBoss(state.bossIndex);
+    state.screen = 'PLAYING';
+    updateTouchVisibility();
+    showBanner(boss.name, boss.subtitle, 2.2);
+  }
+
+  function returnToMenu() {
+    state.screen = 'TITLE';
+    state.bossIndex = 0;
+    state.score = 0;
+    state.runTime = 0;
+    state.hitStop = 0;
+    state.shakeTime = 0;
+    state.shakeMag = 0;
+    state.bannerTimer = 0;
+    state.bannerText = '';
+    state.bannerSub = '';
+    state.parryBufferTimer = 0;
+    state.overlayIdx = 0;
+    state.laserHintShown = false;
+    state.laserHintTimer = 0;
+    state.victoryMsg = '';
+    state.newBestNote = '';
+    boss = null;
+    bullets = [];
+    lasers = [];
+    particles = [];
+    floatingTexts = [];
+    resetPlayerForFight(true);
+    player.invuln = 0;
+    mouse.down = false;
+    resetMoveStick();
+    resetAimStick();
+    updateTouchVisibility();
+  }
+
+  function toggleDifficulty() {
+    if (!state.overclockedUnlocked) {
+      state.difficulty = 'STANDARD';
+      state.lockHintTimer = 1.6;
+      audio.sfxOverheat();
+      haptics.rumble(45, 0.3, 0.2, 0.2, 0.2);
+      return;
+    }
+    state.difficulty = state.difficulty === 'STANDARD' ? 'OVERCLOCKED' : 'STANDARD';
+    audio.sfxParryCast();
+    haptics.rumble(45, 0.4, 0.2, 0.4, 0.4);
+  }
+
+  function togglePause() {
+    if (state.screen === 'PLAYING') {
+      state.screen = 'PAUSED';
+      state.overlayIdx = 0;
+      mouse.down = false;
+      resetMoveStick();
+      resetAimStick();
+      updateTouchVisibility();
+    } else if (state.screen === 'PAUSED') {
+      state.screen = 'PLAYING';
+      updateTouchVisibility();
+    }
+  }
+
+  function cycleOverlaySelection(delta) {
+    state.overlayIdx = (state.overlayIdx + delta + 2) % 2;
+    audio.sfxParryCast();
+  }
+
+  function queueParryOrConfirm() {
+    if (state.screen === 'PLAYING') {
+      state.parryBufferTimer = 0.095;
+    } else {
+      handleConfirmAction();
+    }
+  }
+
+  function handleConfirmAction() {
+    if (state.screen === 'TITLE') {
+      startRun(0);
+    } else if (state.screen === 'PAUSED') {
+      if (state.overlayIdx === 1) returnToMenu();
+      else {
+        state.screen = 'PLAYING';
+        updateTouchVisibility();
+      }
+    } else if (state.screen === 'GAME_OVER') {
+      if (state.overlayIdx === 1) returnToMenu();
+      else startRun(state.difficulty === 'OVERCLOCKED' ? 0 : state.bossIndex);
+    } else if (state.screen === 'VICTORY') {
+      if (state.overlayIdx === 1) returnToMenu();
+      else startRun(0);
+    }
+  }
+
+  function getTitlePillRect() {
+    const pw = Math.min(390, arena.w - 28);
+    const ph = 42;
+    return { x: arena.cx - pw * 0.5, y: arena.cy - 22, w: pw, h: ph };
+  }
+
+  function getOverlayButtonRects() {
+    const bw = Math.min(240, arena.w - 40);
+    const bh = 42;
+    const baseY = state.screen === 'PAUSED'
+      ? arena.cy + 12
+      : (state.screen === 'GAME_OVER' ? arena.cy + 26 : arena.cy + 46);
+    const gap = 12;
+    return [
+      { x: arena.cx - bw * 0.5, y: baseY, w: bw, h: bh },
+      { x: arena.cx - bw * 0.5, y: baseY + bh + gap, w: bw, h: bh }
+    ];
+  }
+
+  function hitTestRect(x, y, r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  }
+
+  function hitTestOverlayButtons(cx, cy) {
+    const rects = getOverlayButtonRects();
+    for (let i = 0; i < rects.length; i++) {
+      if (hitTestRect(cx, cy, rects[i])) return i;
+    }
+    return -1;
+  }
+
+  function handleCanvasClick(cx, cy) {
+    if (state.screen === 'TITLE') {
+      const pill = getTitlePillRect();
+      if (hitTestRect(cx, cy, pill)) {
+        toggleDifficulty();
+        return;
+      }
+      startRun(0);
+    } else if (state.screen === 'PAUSED') {
+      const idx = hitTestOverlayButtons(cx, cy);
+      if (idx === 1) returnToMenu();
+      else if (idx === 0) {
+        state.screen = 'PLAYING';
+        updateTouchVisibility();
+      }
+    } else if (state.screen === 'GAME_OVER') {
+      const idx = hitTestOverlayButtons(cx, cy);
+      if (idx === 1) returnToMenu();
+      else if (idx === 0) startRun(state.difficulty === 'OVERCLOCKED' ? 0 : state.bossIndex);
+    } else if (state.screen === 'VICTORY') {
+      const idx = hitTestOverlayButtons(cx, cy);
+      if (idx === 1) returnToMenu();
+      else startRun(0); // Clicking Play Again or canvas always starts fresh at boss 01
+    }
+  }
+
+  function showBanner(text, sub, dur = 1.8) {
+    state.bannerText = text;
+    state.bannerSub = sub;
+    state.bannerTimer = dur;
+  }
+
+  function addShake(mag, dur) {
+    state.shakeMag = Math.max(state.shakeMag, mag);
+    state.shakeTime = Math.max(state.shakeTime, dur);
+  }
+
+  function spawnParticles(x, y, color, count, speedMin, speedMax, life = 0.45) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = speedMin + Math.random() * (speedMax - speedMin);
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        color,
+        life,
+        maxLife: life,
+        size: 1.8 + Math.random() * 2.4
+      });
+    }
+  }
+
+  function spawnFloatingText(x, y, text, color) {
+    floatingTexts.push({ x, y, text, color, life: 0.95, maxLife: 0.95 });
+  }
+
+  // ============================================================================
+  // 7. PROJECTILE & LASER SPAWNERS
+  // ============================================================================
+  function spawnEnemyBullet(x, y, angle, speed, radius = 5.5) {
+    const spdMult = state.difficulty === 'OVERCLOCKED' ? 1.18 : 1.0;
+    bullets.push({
+      owner: 'ENEMY',
+      x, y,
+      vx: Math.cos(angle) * speed * spdMult,
+      vy: Math.sin(angle) * speed * spdMult,
+      radius,
+      damage: 1,
+      reflected: false
+    });
+  }
+
+  function spawnPlayerBullet(x, y, angle, speed, damage, radius = 4, reflected = false) {
+    bullets.push({
+      owner: 'PLAYER',
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius,
+      damage,
+      reflected
+    });
+  }
+
+  function spawnLaser(x1, y1, x2, y2, telegraphDur = 0.9, activeDur = 0.42, width = 12) {
+    const tMult = state.difficulty === 'OVERCLOCKED' ? 0.82 : 1.0;
+    if (!state.laserHintShown) {
+      state.laserHintShown = true;
+      state.laserHintTimer = 2.6;
+      spawnFloatingText(player.x, player.y - 34, 'AMBER LASER // UNPARRYABLE — DODGE', '#ffb800');
+    }
+    lasers.push({
+      x1, y1, x2, y2,
+      telegraph: telegraphDur * tMult,
+      maxTelegraph: telegraphDur * tMult,
+      active: activeDur,
+      width
+    });
+  }
+
+  // ============================================================================
+  // 8. POLLING XBOX CONTROLLER & INPUT RESOLUTION
+  // ============================================================================
+  function pollInputs() {
+    let moveX = 0;
+    let moveY = 0;
+    let aimX = 0;
+    let aimY = 0;
+    let hasStickAim = false;
+    let firing = false;
+
+    if (keys['KeyW'] || keys['ArrowUp']) moveY -= 1;
+    if (keys['KeyS'] || keys['ArrowDown']) moveY += 1;
+    if (keys['KeyA'] || keys['ArrowLeft']) moveX -= 1;
+    if (keys['KeyD'] || keys['ArrowRight']) moveX += 1;
+    if (moveX !== 0 || moveY !== 0) {
+      const len = Math.hypot(moveX, moveY);
+      moveX /= len;
+      moveY /= len;
+    }
+
+    if (mouse.down && state.screen === 'PLAYING') firing = true;
+
+    if (touchState.active) {
+      if (Math.hypot(touchState.moveVec.x, touchState.moveVec.y) > 0.12) {
+        moveX = touchState.moveVec.x;
+        moveY = touchState.moveVec.y;
+      }
+      if (touchState.aimActive && Math.hypot(touchState.aimVec.x, touchState.aimVec.y) > 0.15) {
+        aimX = touchState.aimVec.x;
+        aimY = touchState.aimVec.y;
+        hasStickAim = true;
+        firing = true;
+      }
+    }
+
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (let i = 0; i < pads.length; i++) {
+      const gp = pads[i];
+      if (!gp || !gp.connected) continue;
+
+      if (!padState.connected) {
+        padState.connected = true;
+        padState.name = gp.id || 'XBOX CONTROLLER';
+        updateTouchVisibility();
+        updateInputBadge();
+      }
+
+      const deadzone = 0.15;
+      const lx = gp.axes[0] || 0;
+      const ly = gp.axes[1] || 0;
+      const lMag = Math.hypot(lx, ly);
+      if (lMag > deadzone) {
+        const norm = Math.min(1, (lMag - deadzone) / (1 - deadzone));
+        moveX = (lx / lMag) * norm;
+        moveY = (ly / lMag) * norm;
+      }
+
+      const rx = gp.axes[2] || 0;
+      const ry = gp.axes[3] || 0;
+      const rMag = Math.hypot(rx, ry);
+      if (rMag > deadzone) {
+        aimX = rx / rMag;
+        aimY = ry / rMag;
+        hasStickAim = true;
+      }
+
+      const rtVal = gp.buttons[7] ? gp.buttons[7].value : 0;
+      if (rtVal > 0.18 || (gp.buttons[7] && gp.buttons[7].pressed)) {
+        firing = true;
+      }
+
+      const ltVal = gp.buttons[6] ? gp.buttons[6].value : 0;
+      const parryDown = ltVal > 0.2 || Boolean(gp.buttons[6] && gp.buttons[6].pressed) || Boolean(gp.buttons[4] && gp.buttons[4].pressed);
+      if (parryDown && !padState.prevParry) {
+        audio.init();
+        if (state.screen === 'PLAYING') queueParryOrConfirm();
+      }
+      padState.prevParry = parryDown;
+
+      const aDown = Boolean(gp.buttons[0] && gp.buttons[0].pressed);
+      if (aDown && !padState.prevA) {
+        audio.init();
+        if (state.screen !== 'PLAYING') {
+          handleConfirmAction();
+        }
+      }
+      padState.prevA = aDown;
+
+      const bDown = Boolean(gp.buttons[1] && gp.buttons[1].pressed);
+      if (bDown && !padState.prevB) {
+        audio.init();
+        if (state.screen === 'PAUSED' || state.screen === 'GAME_OVER' || state.screen === 'VICTORY') {
+          returnToMenu();
+        }
+      }
+      padState.prevB = bDown;
+
+      const startDown = Boolean(gp.buttons[9] && gp.buttons[9].pressed);
+      if (startDown && !padState.prevStart) {
+        togglePause();
+      }
+      padState.prevStart = startDown;
+
+      const dUp = Boolean(gp.buttons[12] && gp.buttons[12].pressed);
+      const dDown = Boolean(gp.buttons[13] && gp.buttons[13].pressed);
+      const dLeft = Boolean(gp.buttons[14] && gp.buttons[14].pressed);
+      const dRight = Boolean(gp.buttons[15] && gp.buttons[15].pressed);
+      const dEdge = (dUp && !padState.prevUp) || (dDown && !padState.prevDown) ||
+                    (dLeft && !padState.prevLeft) || (dRight && !padState.prevRight);
+      if (dEdge) {
+        if (state.screen === 'TITLE') {
+          toggleDifficulty();
+        } else if (state.screen === 'PAUSED' || state.screen === 'GAME_OVER' || state.screen === 'VICTORY') {
+          cycleOverlaySelection(1);
+        }
+      }
+      padState.prevUp = dUp;
+      padState.prevDown = dDown;
+      padState.prevLeft = dLeft;
+      padState.prevRight = dRight;
+      break;
+    }
+
+    if (hasStickAim) {
+      player.aimAngle = Math.atan2(aimY, aimX);
+    } else if (mouse.active && !padState.connected && !touchState.active) {
+      player.aimAngle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+    } else if (Math.hypot(moveX, moveY) > 0.2) {
+      player.aimAngle = Math.atan2(moveY, moveX);
+    }
+
+    return { moveX, moveY, firing };
+  }
+
+  // ============================================================================
+  // 9. PARRY PULSE & COMBAT LOGIC
+  // ============================================================================
+  function triggerParryPulse() {
+    player.parryActiveTimer = 0.175;
+    player.parryCooldown = 0.34;
+    state.parryBufferTimer = 0;
+
+    audio.sfxParryCast();
+    haptics.rumble(55, 0.75, 0.2, 0.9, 0.0);
+    impulseGrid(player.x, player.y, 175, 220);
+
+    evaluateParryReflections();
+  }
+
+  function evaluateParryReflections() {
+    if (player.parryActiveTimer <= 0 || !boss) return;
+    let reflectedCount = 0;
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      if (b.owner !== 'ENEMY') continue;
+      const d = Math.hypot(b.x - player.x, b.y - player.y);
+      if (d <= player.parryRadius + b.radius) {
+        reflectedCount++;
+        let targetX = boss.x;
+        let targetY = boss.y;
+        if (boss.index === 2 && boss.cores.length === 2) {
+          const d0 = Math.hypot(b.x - boss.cores[0].x, b.y - boss.cores[0].y);
+          const d1 = Math.hypot(b.x - boss.cores[1].x, b.y - boss.cores[1].y);
+          const c = d0 < d1 ? boss.cores[0] : boss.cores[1];
+          targetX = c.x;
+          targetY = c.y;
+        }
+        const ang = Math.atan2(targetY - b.y, targetX - b.x) + (Math.random() - 0.5) * 0.05;
+        const speed = 780;
+        bullets[i] = {
+          owner: 'PLAYER',
+          x: b.x,
+          y: b.y,
+          vx: Math.cos(ang) * speed,
+          vy: Math.sin(ang) * speed,
+          radius: 6.5,
+          damage: 42,
+          reflected: true
+        };
+        spawnParticles(b.x, b.y, '#00ff9d', 6, 80, 240, 0.32);
+      }
+    }
+
+    if (reflectedCount > 0) {
+      player.heat = 0;
+      player.overheated = false;
+      player.overheatTimer = 0;
+      player.overdriveTimer = 3.0;
+      player.parryActiveTimer = 0;
+      player.parryCooldown = 0.22;
+
+      player.parryStreak++;
+      player.totalParries += reflectedCount;
+      state.score += reflectedCount * 250 * (state.difficulty === 'OVERCLOCKED' ? 1.5 : 1);
+
+      state.hitStop = Math.min(0.042, 0.018 + reflectedCount * 0.004);
+      addShake(6.5, 0.16);
+      impulseGrid(player.x, player.y, 260, 420);
+      audio.sfxParrySuccess(reflectedCount);
+      haptics.rumble(140, 0.85, 0.85, 0.95, 0.75);
+
+      if (player.parryStreak >= 3) {
+        player.parryStreak = 0;
+        if (player.shield < player.maxShield) {
+          player.shield++;
+          spawnFloatingText(player.x, player.y - 28, 'SHIELD PIP RESTORED +1', '#00ff9d');
+        } else {
+          state.score += 1000;
+          spawnFloatingText(player.x, player.y - 28, 'OVERDRIVE VENT // +1000', '#00ff9d');
+        }
+      } else {
+        spawnFloatingText(
+          player.x,
+          player.y - 24,
+          `PARRY x${reflectedCount} // OVERDRIVE (${player.parryStreak}/3)`,
+          '#00ff9d'
+        );
+      }
+    }
+  }
+
+  function damagePlayer() {
+    if (player.invuln > 0 || state.screen !== 'PLAYING') return;
+    player.shield--;
+    player.invuln = 1.4;
+    player.parryStreak = 0;
+
+    addShake(11, 0.28);
+    impulseGrid(player.x, player.y, 290, 520);
+    spawnParticles(player.x, player.y, '#00f0ff', 24, 90, 340, 0.55);
+    audio.sfxPlayerHit();
+    haptics.rumble(260, 0.9, 1.0, 0.8, 0.8);
+
+    bullets = bullets.filter(b => b.owner !== 'ENEMY' || Math.hypot(b.x - player.x, b.y - player.y) > 150);
+
+    if (player.shield <= 0) {
+      state.screen = 'GAME_OVER';
+      state.overlayIdx = 0;
+      mouse.down = false;
+      resetMoveStick();
+      resetAimStick();
+      updateTouchVisibility();
+    } else {
+      spawnFloatingText(player.x, player.y - 26, 'HULL BREACH // STREAK RESET', '#ff2a55');
+    }
+  }
+
+  function damageBoss(amount, hitX, hitY, isReflected) {
+    if (!boss || boss.hp <= 0) return;
+    boss.hp = Math.max(0, boss.hp - amount);
+    boss.flashTimer = 0.045;
+    state.score += Math.round(amount * (isReflected ? 4 : 1));
+
+    if (isReflected) {
+      addShake(4.5, 0.1);
+      impulseGrid(hitX, hitY, 150, 260);
+      spawnParticles(hitX, hitY, '#00ff9d', 10, 80, 260, 0.35);
+      audio.sfxReflectHit();
+      haptics.rumble(95, 0.35, 0.95, 0.5, 0.0);
+    } else {
+      spawnParticles(hitX, hitY, '#00f0ff', 3, 40, 140, 0.2);
+    }
+
+    if (boss.phase === 1 && boss.hp <= boss.maxHp * 0.5 && boss.hp > 0) {
+      boss.phase = 2;
+      boss.attackTimer = 0.65;
+      addShake(9, 0.25);
+      impulseGrid(boss.x, boss.y, 340, 560);
+      spawnParticles(boss.x, boss.y, '#ffb800', 28, 100, 380, 0.6);
+      haptics.rumble(180, 0.7, 0.9, 0.7, 0.7);
+      showBanner('PHASE II // ESCALATION', 'INTENSIFIED PATTERNS & SIGHTLINES', 1.5);
+    }
+
+    if (boss.hp <= 0) {
+      onBossDefeated();
+    }
+  }
+
+  function onBossDefeated() {
+    addShake(15, 0.45);
+    impulseGrid(boss.x, boss.y, 460, 750);
+    spawnParticles(boss.x, boss.y, '#00ff9d', 45, 90, 460, 0.85);
+    spawnParticles(boss.x, boss.y, '#ff2a55', 35, 70, 380, 0.75);
+    audio.sfxBossExplosion();
+    haptics.rumble(340, 0.95, 1.0, 1.0, 1.0);
+
+    bullets = [];
+    lasers = [];
+    state.score += 5000;
+
+    if (state.bossIndex < BOSS_DEFS.length - 1) {
+      state.bossIndex++;
+      boss = createBoss(state.bossIndex);
+      player.heat = 0;
+      player.overheated = false;
+      player.invuln = 1.5;
+      showBanner(boss.name, boss.subtitle, 2.3);
+    } else {
+      const wasUnlocked = state.overclockedUnlocked;
+      const mode = state.difficulty;
+      const rec = state.best[mode];
+      const beatScore = state.score > rec.score;
+      const beatTime = rec.time === null || state.runTime < rec.time;
+      if (beatScore) rec.score = state.score;
+      if (beatTime) rec.time = state.runTime;
+
+      state.overclockedUnlocked = true;
+      writeSave();
+
+      if (!wasUnlocked && mode === 'STANDARD') {
+        state.victoryMsg = 'OVERCLOCKED DIFFICULTY UNLOCKED ON TITLE SCREEN';
+      } else if (mode === 'STANDARD') {
+        state.victoryMsg = 'STANDARD GAUNTLET COMPLETE // OVERCLOCKED AVAILABLE';
+      } else {
+        state.victoryMsg = 'OVERCLOCKED MASTER RUN COMPLETE';
+      }
+      state.newBestNote = (beatScore && beatTime)
+        ? 'NEW BEST SCORE & FASTEST CLEAR'
+        : (beatScore ? 'NEW BEST SCORE' : (beatTime ? 'NEW FASTEST CLEAR' : ''));
+
+      state.screen = 'VICTORY';
+      state.overlayIdx = 0;
+      mouse.down = false;
+      resetMoveStick();
+      resetAimStick();
+      updateTouchVisibility();
+    }
+  }
+
+  // ============================================================================
+  // 10. BOSS AI & PATTERN GENERATORS
+  // ============================================================================
+  function updateBoss(dt) {
+    if (!boss) return;
+    boss.timer += dt;
+    boss.angle += dt * (boss.phase === 1 ? 1.15 : 1.75);
+    if (boss.flashTimer > 0) boss.flashTimer -= dt;
+    boss.attackTimer -= dt;
+
+    const rateMult = state.difficulty === 'OVERCLOCKED' ? 0.82 : 1.0;
+
+    if (boss.index === 0) {
+      boss.x = arena.cx + Math.sin(boss.timer * 0.85) * (arena.w * 0.24);
+      boss.y = arena.y + arena.h * 0.25 + Math.cos(boss.timer * 1.3) * 28;
+
+      if (boss.attackTimer <= 0) {
+        boss.patternStep++;
+        if (boss.patternStep % 3 === 0) {
+          const count = boss.phase === 1 ? 16 : 22;
+          const offset = boss.angle;
+          for (let i = 0; i < count; i++) {
+            const a = offset + (i / count) * Math.PI * 2;
+            spawnEnemyBullet(boss.x, boss.y, a, 235, 5.5);
+          }
+          if (boss.phase === 2) {
+            const la = boss.angle * 0.5;
+            spawnLaser(
+              boss.x - Math.cos(la) * 900, boss.y - Math.sin(la) * 900,
+              boss.x + Math.cos(la) * 900, boss.y + Math.sin(la) * 900,
+              0.92, 0.38, 12
+            );
+          }
+          boss.attackTimer = 1.45 * rateMult;
+        } else {
+          const arms = boss.phase === 1 ? 4 : 6;
+          for (let i = 0; i < arms; i++) {
+            const a = boss.angle + (i / arms) * Math.PI * 2;
+            spawnEnemyBullet(boss.x, boss.y, a, 265, 5);
+          }
+          boss.attackTimer = 0.26 * rateMult;
+        }
+      }
+    } else if (boss.index === 1) {
+      boss.x = arena.cx + Math.cos(boss.timer * 0.7) * (arena.w * 0.16);
+      boss.y = arena.y + arena.h * 0.30 + Math.sin(boss.timer * 1.1) * 34;
+
+      boss.anchors.forEach((anc, i) => {
+        const orbit = boss.timer * 0.6 + i * 1.57;
+        anc.x = arena.x + arena.w * anc.rx + Math.cos(orbit) * 22;
+        anc.y = arena.y + arena.h * anc.ry + Math.sin(orbit) * 22;
+      });
+
+      if (boss.attackTimer <= 0) {
+        boss.patternStep++;
+        if (boss.patternStep % 2 === 1) {
+          const pair = (boss.patternStep >> 1) % 2;
+          if (pair === 0) {
+            spawnLaser(boss.anchors[0].x, boss.anchors[0].y, boss.anchors[3].x, boss.anchors[3].y, 0.9, 0.42, 13);
+            if (boss.phase === 2) {
+              spawnLaser(boss.anchors[1].x, boss.anchors[1].y, boss.anchors[2].x, boss.anchors[2].y, 0.9, 0.42, 13);
+            }
+          } else {
+            spawnLaser(boss.anchors[0].x, boss.anchors[0].y, boss.anchors[1].x, boss.anchors[1].y, 0.85, 0.4, 12);
+            spawnLaser(boss.anchors[2].x, boss.anchors[2].y, boss.anchors[3].x, boss.anchors[3].y, 0.85, 0.4, 12);
+          }
+          const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+          const spread = boss.phase === 1 ? 5 : 7;
+          for (let s = -spread; s <= spread; s++) {
+            spawnEnemyBullet(boss.x, boss.y, aim + s * 0.11, 275, 5.5);
+          }
+          boss.attackTimer = 1.35 * rateMult;
+        } else {
+          boss.anchors.forEach((anc) => {
+            const aim = Math.atan2(player.y - anc.y, player.x - anc.x);
+            spawnEnemyBullet(anc.x, anc.y, aim - 0.12, 250, 5);
+            spawnEnemyBullet(anc.x, anc.y, aim + 0.12, 250, 5);
+          });
+          boss.attackTimer = 0.95 * rateMult;
+        }
+      }
+    } else if (boss.index === 2) {
+      const sep = boss.phase === 1 ? arena.w * 0.23 : arena.w * 0.18;
+      const orbitSpd = boss.phase === 1 ? 0.95 : 1.35;
+      boss.x = arena.cx;
+      boss.y = arena.y + arena.h * 0.30;
+
+      boss.cores.forEach((c, idx) => {
+        const ang = boss.timer * orbitSpd + idx * Math.PI;
+        c.x = arena.cx + Math.cos(ang) * sep;
+        c.y = arena.y + arena.h * 0.32 + Math.sin(ang * 1.4) * (arena.h * 0.14);
+        c.angle += dt * (idx === 0 ? 2.4 : -2.4);
+      });
+
+      if (boss.attackTimer <= 0) {
+        boss.patternStep++;
+        const c0 = boss.cores[0];
+        const c1 = boss.cores[1];
+
+        if (boss.patternStep % 4 === 0) {
+          spawnLaser(c0.x, c0.y, c1.x, c1.y, 0.85, 0.45, 14);
+          if (boss.phase === 2) {
+            const aim = Math.atan2(player.y - c0.y, player.x - c0.x);
+            spawnLaser(c0.x, c0.y, c0.x + Math.cos(aim) * 1100, c0.y + Math.sin(aim) * 1100, 0.92, 0.38, 12);
+          }
+          boss.attackTimer = 1.15 * rateMult;
+        } else {
+          boss.cores.forEach((c, idx) => {
+            const count = boss.phase === 1 ? 8 : 11;
+            for (let i = 0; i < count; i++) {
+              const a = c.angle + (i / count) * Math.PI * 2;
+              spawnEnemyBullet(c.x, c.y, a, 255 + idx * 15, 5.2);
+            }
+          });
+          boss.attackTimer = 0.68 * rateMult;
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // 11. MAIN SIMULATION STEP
+  // ============================================================================
+  function distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - x1, py - y1);
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+
+  function update(dt) {
+    const input = pollInputs();
+    if (state.lockHintTimer > 0) state.lockHintTimer = Math.max(0, state.lockHintTimer - dt);
+
+    if (state.screen !== 'PLAYING') {
+      updateGrid(dt);
+      return;
+    }
+
+    if (state.hitStop > 0) {
+      state.hitStop -= dt;
+      return;
+    }
+
+    state.runTime += dt;
+    if (state.bannerTimer > 0) state.bannerTimer -= dt;
+    if (state.laserHintTimer > 0) state.laserHintTimer -= dt;
+    if (state.shakeTime > 0) {
+      state.shakeTime -= dt;
+      if (state.shakeTime <= 0) state.shakeMag = 0;
+    }
+
+    if (player.invuln > 0) player.invuln -= dt;
+    if (player.fireCooldown > 0) player.fireCooldown -= dt;
+    if (player.parryCooldown > 0) player.parryCooldown -= dt;
+    if (state.parryBufferTimer > 0) state.parryBufferTimer -= dt;
+
+    if (player.parryActiveTimer > 0) {
+      player.parryActiveTimer -= dt;
+      evaluateParryReflections();
+    } else if (state.parryBufferTimer > 0 && player.parryCooldown <= 0) {
+      triggerParryPulse();
+    }
+
+    if (player.overdriveTimer > 0) {
+      player.overdriveTimer = Math.max(0, player.overdriveTimer - dt);
+      player.heat = 0;
+      player.overheated = false;
+    } else if (player.overheated) {
+      player.overheatTimer -= dt;
+      player.heat = Math.max(0, player.overheatTimer / 1.55);
+      if (player.overheatTimer <= 0) {
+        player.overheated = false;
+        player.heat = 0;
+      }
+    } else {
+      const coolRate = input.firing ? 0.14 : 0.46;
+      player.heat = Math.max(0, player.heat - coolRate * dt);
+    }
+
+    const moveSpeed = player.overdriveTimer > 0 ? player.speed * 1.12 : player.speed;
+    player.vx = input.moveX * moveSpeed;
+    player.vy = input.moveY * moveSpeed;
+    player.x = Math.max(arena.x + 16, Math.min(arena.x + arena.w - 16, player.x + player.vx * dt));
+    player.y = Math.max(arena.y + 16, Math.min(arena.y + arena.h - 16, player.y + player.vy * dt));
+
+    if (input.firing && !player.overheated && player.fireCooldown <= 0) {
+      const isOD = player.overdriveTimer > 0;
+      player.fireCooldown = isOD ? 0.068 : 0.095;
+      const spd = isOD ? 880 : 760;
+      const dmg = isOD ? 16 : 13;
+
+      spawnPlayerBullet(
+        player.x + Math.cos(player.aimAngle) * 16,
+        player.y + Math.sin(player.aimAngle) * 16,
+        player.aimAngle,
+        spd,
+        dmg,
+        isOD ? 4.5 : 3.8,
+        false
+      );
+
+      if (isOD) {
+        spawnPlayerBullet(player.x, player.y, player.aimAngle - 0.09, spd, dmg * 0.75, 3.8, false);
+        spawnPlayerBullet(player.x, player.y, player.aimAngle + 0.09, spd, dmg * 0.75, 3.8, false);
+      } else {
+        player.heat = Math.min(1, player.heat + 0.056);
+        if (player.heat > 0.82) {
+          haptics.rumble(25, 0.15, 0.05, 0.0, 0.35);
+        }
+        if (player.heat >= 1) {
+          player.overheated = true;
+          player.overheatTimer = 1.55;
+          audio.sfxOverheat();
+          haptics.rumble(160, 0.5, 0.7, 0.0, 0.95);
+          spawnFloatingText(player.x, player.y - 24, 'THERMAL LOCKOUT // PARRY TO VENT', '#ffb800');
+        }
+      }
+      audio.sfxShoot(player.heat, isOD);
+    }
+
+    updateBoss(dt);
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      if (i >= bullets.length) { i = bullets.length - 1; if (i < 0) break; }
+      const b = bullets[i];
+      if (!b) continue;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+
+      if (b.x < arena.x - 20 || b.x > arena.x + arena.w + 20 ||
+          b.y < arena.y - 20 || b.y > arena.y + arena.h + 20) {
+        bullets.splice(i, 1);
+        continue;
+      }
+
+      if (b.owner === 'ENEMY') {
+        const d = Math.hypot(b.x - player.x, b.y - player.y);
+        if (d < player.hitboxR + b.radius) {
+          bullets.splice(i, 1);
+          damagePlayer();
+          if (state.screen !== 'PLAYING') break;
+          if (i > bullets.length) i = bullets.length;
+        }
+      } else if (b.owner === 'PLAYER' && boss) {
+        let hit = false;
+        if (boss.index === 2 && boss.cores.length === 2) {
+          for (const c of boss.cores) {
+            if (Math.hypot(b.x - c.x, b.y - c.y) < c.radius + b.radius) {
+              hit = true;
+              break;
+            }
+          }
+        } else {
+          if (Math.hypot(b.x - boss.x, b.y - boss.y) < boss.radius + b.radius) {
+            hit = true;
+          }
+        }
+        if (hit) {
+          bullets.splice(i, 1);
+          const prevBossIdx = state.bossIndex;
+          damageBoss(b.damage, b.x, b.y, b.reflected);
+          if (state.screen !== 'PLAYING' || state.bossIndex !== prevBossIdx) break;
+        }
+      }
+    }
+
+    for (let i = lasers.length - 1; i >= 0; i--) {
+      if (i >= lasers.length) { i = lasers.length - 1; if (i < 0) break; }
+      const l = lasers[i];
+      if (!l) continue;
+      if (l.telegraph > 0) {
+        l.telegraph -= dt;
+      } else {
+        l.active -= dt;
+        const dist = distToSegment(player.x, player.y, l.x1, l.y1, l.x2, l.y2);
+        if (dist < player.hitboxR + l.width * 0.45) {
+          damagePlayer();
+          if (state.screen !== 'PLAYING') break;
+        }
+        if (l.active <= 0) {
+          lasers.splice(i, 1);
+        }
+      }
+    }
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.94;
+      p.vy *= 0.94;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const ft = floatingTexts[i];
+      ft.y -= 28 * dt;
+      ft.life -= dt;
+      if (ft.life <= 0) floatingTexts.splice(i, 1);
+    }
+
+    updateGrid(dt);
+    audio.updateMusic(dt, true, player.overdriveTimer, state.bossIndex);
+  }
+
+  // ============================================================================
+  // 12. VECTOR RENDERER & RESPONSIVE CANVAS TEXT HELPERS
+  // ============================================================================
+  function fitText(text, maxW, weight, startSize, minSize) {
+    let size = startSize;
+    while (size > minSize) {
+      ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      if (ctx.measureText(text).width <= maxW) break;
+      size -= 1;
+    }
+    ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    return size;
+  }
+
+  function wrapLines(text, maxW, fontSpec) {
+    ctx.font = fontSpec;
+    const words = text.split(' ');
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (ctx.measureText(next).width <= maxW) {
+        cur = next;
+      } else {
+        if (cur) lines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function render() {
+    ctx.fillStyle = '#050608';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    if (state.shakeTime > 0 && state.shakeMag > 0) {
+      const sx = (Math.random() - 0.5) * 2 * state.shakeMag;
+      const sy = (Math.random() - 0.5) * 2 * state.shakeMag;
+      ctx.translate(sx, sy);
+    }
+
+    const odRatio = Math.min(1, player.overdriveTimer / 3.0);
+    drawGrid(odRatio);
+
+    ctx.strokeStyle = odRatio > 0 ? 'rgba(0, 255, 157, 0.65)' : 'rgba(0, 240, 255, 0.38)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(arena.x, arena.y, arena.w, arena.h);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(arena.x, arena.y, arena.w, arena.h);
+    ctx.clip();
+
+    for (const l of lasers) {
+      if (l.telegraph > 0) {
+        const prog = 1 - l.telegraph / l.maxTelegraph;
+        ctx.save();
+        ctx.setLineDash([8, 8]);
+        ctx.strokeStyle = `rgba(255, 184, 0, ${(0.28 + prog * 0.55).toFixed(2)})`;
+        ctx.lineWidth = 1.5 + prog * 1.5;
+        ctx.beginPath();
+        ctx.moveTo(l.x1, l.y1);
+        ctx.lineTo(l.x2, l.y2);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 184, 0, 0.35)';
+        ctx.lineWidth = l.width * 1.8;
+        ctx.beginPath();
+        ctx.moveTo(l.x1, l.y1);
+        ctx.lineTo(l.x2, l.y2);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#ffb800';
+        ctx.lineWidth = l.width;
+        ctx.beginPath();
+        ctx.moveTo(l.x1, l.y1);
+        ctx.lineTo(l.x2, l.y2);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = l.width * 0.32;
+        ctx.beginPath();
+        ctx.moveTo(l.x1, l.y1);
+        ctx.lineTo(l.x2, l.y2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    if (boss && state.screen !== 'TITLE') {
+      drawBoss(boss);
+    }
+
+    for (const b of bullets) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+      if (b.owner === 'ENEMY') {
+        ctx.fillStyle = '#ff2a55';
+        ctx.shadowColor = '#ff2a55';
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd1dc';
+        ctx.fill();
+      } else if (b.reflected) {
+        ctx.fillStyle = '#00ff9d';
+        ctx.shadowColor = '#00ff9d';
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius * 0.48, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+      } else {
+        ctx.fillStyle = odRatio > 0 ? '#00ff9d' : '#00f0ff';
+        ctx.shadowColor = odRatio > 0 ? '#00ff9d' : '#00f0ff';
+        ctx.shadowBlur = 8;
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    if (state.screen !== 'TITLE') {
+      drawPlayer();
+    }
+
+    for (const p of particles) {
+      const alpha = Math.max(0, p.life / p.maxLife);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.textAlign = 'center';
+    ctx.font = '700 12px -apple-system, BlinkMacSystemFont, sans-serif';
+    for (const ft of floatingTexts) {
+      ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
+      ctx.fillStyle = ft.color;
+      ctx.fillText(ft.text, ft.x, ft.y);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.restore(); // End arena clip
+
+    drawHUD();
+    if (state.screen !== 'PLAYING') {
+      drawOverlay();
+    }
+
+    ctx.restore();
+  }
+
+  function drawPlayer() {
+    if (player.invuln > 0 && Math.floor(player.invuln * 18) % 2 === 0) {
+      ctx.globalAlpha = 0.45;
+    }
+
+    if (player.parryActiveTimer > 0) {
+      const prog = 1 - player.parryActiveTimer / 0.175;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.parryRadius * (0.65 + prog * 0.35), 0, Math.PI * 2);
+      ctx.strokeStyle = '#00ff9d';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#00ff9d';
+      ctx.shadowBlur = 18;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0, 255, 157, 0.12)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 22, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    if (player.overdriveTimer > 0) {
+      const odFrac = player.overdriveTimer / 3.0;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, 22, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * odFrac);
+      ctx.strokeStyle = '#00ff9d';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else if (player.heat > 0.01) {
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, 22, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * player.heat);
+      ctx.strokeStyle = player.overheated ? '#ff2a55' : (player.heat > 0.75 ? '#ffb800' : '#00f0ff');
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    for (let s = 0; s < 3; s++) {
+      const startA = (s * 120 - 82) * (Math.PI / 180);
+      const endA = (s * 120 - 18) * (Math.PI / 180);
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, 27, startA, endA);
+      ctx.strokeStyle = s < player.parryStreak ? '#00ff9d' : 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.aimAngle);
+
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(-11, -10);
+    ctx.lineTo(-6, 0);
+    ctx.lineTo(-11, 10);
+    ctx.closePath();
+    ctx.fillStyle = player.overdriveTimer > 0 ? 'rgba(0, 255, 157, 0.25)' : 'rgba(0, 240, 255, 0.18)';
+    ctx.fill();
+    ctx.strokeStyle = player.overdriveTimer > 0 ? '#00ff9d' : '#00f0ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.hitboxR, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+  }
+
+  function drawBoss(b) {
+    const strokeCol = b.flashTimer > 0 ? '#ffffff' : '#ff2a55';
+
+    if (b.index === 1) {
+      for (const anc of b.anchors) {
+        ctx.save();
+        ctx.translate(anc.x, anc.y);
+        ctx.rotate(b.timer * 1.5);
+        ctx.strokeStyle = '#ffb800';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-9, -9, 18, 18);
+        ctx.restore();
+      }
+    }
+
+    if (b.index === 2) {
+      b.cores.forEach((c) => {
+        drawGeometricCore(c.x, c.y, c.radius, c.angle, strokeCol, 6);
+      });
+      return;
+    }
+
+    drawGeometricCore(b.x, b.y, b.radius, b.angle, strokeCol, b.index === 0 ? 8 : 6);
+  }
+
+  function drawGeometricCore(x, y, r, angle, color, sides) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 16;
+
+    ctx.beginPath();
+    for (let i = 0; i <= sides; i++) {
+      const a = (i / sides) * Math.PI * 2;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.fillStyle = 'rgba(255, 42, 85, 0.16)';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.rotate(-angle * 2);
+    ctx.beginPath();
+    for (let i = 0; i <= 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const px = Math.cos(a) * (r * 0.52);
+      const py = Math.sin(a) * (r * 0.52);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawHUD() {
+    const narrow = isNarrow();
+    const leftX = narrow ? 10 : Math.max(16, arena.x);
+    const topY = narrow ? 20 : 24;
+
+    ctx.textAlign = 'left';
+    if (narrow) {
+      ctx.font = '800 10px -apple-system, BlinkMacSystemFont, sans-serif';
+      for (let i = 0; i < player.maxShield; i++) {
+        const px = leftX + i * 16;
+        ctx.fillStyle = i < player.shield ? '#00f0ff' : 'rgba(255,255,255,0.12)';
+        ctx.strokeStyle = i < player.shield ? '#00f0ff' : 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 1.2;
+        ctx.fillRect(px, topY - 9, 12, 9);
+        ctx.strokeRect(px, topY - 9, 12, 9);
+      }
+      ctx.fillStyle = state.difficulty === 'OVERCLOCKED' ? '#ffb800' : '#00ff9d';
+      const shortMode = state.difficulty === 'OVERCLOCKED' ? 'OC' : 'STD';
+      ctx.fillText(`${shortMode} ${state.score.toLocaleString()}`, leftX + 54, topY);
+    } else {
+      ctx.font = '800 12px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#6c8594';
+      ctx.fillText('SHIELD', leftX, topY);
+
+      for (let i = 0; i < player.maxShield; i++) {
+        const px = leftX + 54 + i * 24;
+        ctx.fillStyle = i < player.shield ? '#00f0ff' : 'rgba(255,255,255,0.12)';
+        ctx.strokeStyle = i < player.shield ? '#00f0ff' : 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(px, topY - 10, 18, 10);
+        ctx.strokeRect(px, topY - 10, 18, 10);
+      }
+
+      ctx.fillStyle = state.difficulty === 'OVERCLOCKED' ? '#ffb800' : '#00ff9d';
+      ctx.fillText(`${state.difficulty}  //  SCORE ${state.score.toLocaleString()}`, leftX + 138, topY);
+    }
+
+    // Boss Health Bar sits cleanly in Row 2 (y=46..64), completely below #topBar and above arena.y
+    if (boss && state.screen === 'PLAYING') {
+      const barW = Math.min(520, arena.w * 0.82);
+      const barX = arena.cx - barW * 0.5;
+      const nameY = arena.y - 16;
+      const barY = arena.y - 10;
+      const hpFrac = Math.max(0, boss.hp / boss.maxHp);
+
+      ctx.textAlign = 'center';
+      fitText(boss.name, Math.max(200, arena.w - 20), '700', narrow ? 10 : 11, 9);
+      ctx.fillStyle = '#e6f4f8';
+      ctx.fillText(boss.name, arena.cx, nameY);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.fillRect(barX, barY, barW, 5);
+      ctx.fillStyle = boss.phase === 2 ? '#ffb800' : '#ff2a55';
+      ctx.fillRect(barX, barY, barW * hpFrac, 5);
+    }
+
+    if (state.bannerTimer > 0 && state.screen === 'PLAYING') {
+      const alpha = Math.min(1, state.bannerTimer * 2);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = 'center';
+      fitText(state.bannerText, arena.w - 28, '800', 22, 13);
+      ctx.fillStyle = '#e6f4f8';
+      ctx.fillText(state.bannerText, arena.cx, arena.cy - 12);
+      fitText(state.bannerSub, arena.w - 28, '600', 12, 9);
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText(state.bannerSub, arena.cx, arena.cy + 10);
+      ctx.restore();
+    }
+
+    if (state.laserHintTimer > 0 && state.screen === 'PLAYING') {
+      const alpha = Math.min(1, state.laserHintTimer * 1.5);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = 'center';
+      const warn = '! AMBER LASERS ARE UNPARRYABLE — DODGE !';
+      fitText(warn, arena.w - 24, '800', 12, 9);
+      ctx.fillStyle = '#ffb800';
+      ctx.fillText(warn, arena.cx, arena.y + 22);
+      ctx.restore();
+    }
+  }
+
+  function drawOverlayButtons(labels) {
+    const rects = getOverlayButtonRects();
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      const selected = state.overlayIdx === i;
+      const isMenuBtn = i === 1;
+      const accent = isMenuBtn ? '#ffb800' : '#00ff9d';
+      ctx.fillStyle = selected
+        ? (isMenuBtn ? 'rgba(255, 184, 0, 0.2)' : 'rgba(0, 255, 157, 0.2)')
+        : 'rgba(10, 14, 20, 0.72)';
+      ctx.strokeStyle = selected ? accent : 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = selected ? 2 : 1.2;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+      const text = selected ? `▶ ${labels[i]}` : labels[i];
+      fitText(text, r.w - 20, '800', 13, 10);
+      ctx.fillStyle = selected ? accent : '#9ab2c0';
+      ctx.fillText(text, r.x + r.w * 0.5, r.y + r.h * 0.5 + 5);
+    }
+  }
+
+  function drawOverlay() {
+    ctx.fillStyle = 'rgba(5, 6, 8, 0.84)';
+    ctx.fillRect(arena.x, arena.y, arena.w, arena.h);
+
+    ctx.textAlign = 'center';
+    const maxW = arena.w - 28;
+    const narrow = arena.w < 540;
+
+    if (state.screen === 'TITLE') {
+      const titleY = arena.cy - (narrow ? 126 : 114);
+      fitText('PARRY VECTOR // GAUNTLET', maxW, '900', 34, 19);
+      ctx.fillStyle = '#e6f4f8';
+      ctx.fillText('PARRY VECTOR // GAUNTLET', arena.cx, titleY);
+
+      fitText('3-BOSS TWIN-STICK REFLECT GAUNTLET', maxW, '600', 13, 10);
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText('3-BOSS TWIN-STICK REFLECT GAUNTLET', arena.cx, titleY + 26);
+
+      // Difficulty Selector Pill
+      const pill = getTitlePillRect();
+      const isOC = state.difficulty === 'OVERCLOCKED';
+      const locked = !state.overclockedUnlocked;
+      ctx.strokeStyle = isOC ? '#ffb800' : '#00ff9d';
+      ctx.fillStyle = isOC ? 'rgba(255, 184, 0, 0.14)' : 'rgba(0, 255, 157, 0.12)';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(pill.x, pill.y, pill.w, pill.h);
+      ctx.strokeRect(pill.x, pill.y, pill.w, pill.h);
+
+      const modeLabel = isOC
+        ? 'MODE: OVERCLOCKED (1-LIFE MASTER RUN)'
+        : (locked ? 'MODE: STANDARD (OVERCLOCKED LOCKED)' : 'MODE: STANDARD (BOSS CHECKPOINTS)');
+      fitText(modeLabel, pill.w - 18, '800', 13, 10);
+      ctx.fillStyle = isOC ? '#ffb800' : '#00ff9d';
+      ctx.fillText(modeLabel, arena.cx, pill.y + 26);
+
+      if (state.lockHintTimer > 0) {
+        const lockNote = 'CLEAR STANDARD TO UNLOCK OVERCLOCKED';
+        fitText(lockNote, maxW, '700', 11, 9);
+        ctx.fillStyle = '#ffb800';
+        ctx.fillText(lockNote, arena.cx, pill.y + pill.h + 18);
+      } else {
+        const stdB = state.best.STANDARD;
+        const ocB = state.best.OVERCLOCKED;
+        const stdTxt = stdB.score > 0
+          ? `BEST STD: ${stdB.score.toLocaleString()} (${stdB.time ? stdB.time.toFixed(1) + 's' : '--'})`
+          : 'BEST STD: --';
+        const ocTxt = !state.overclockedUnlocked
+          ? 'OVERCLOCKED: LOCKED'
+          : (ocB.score > 0 ? `BEST OC: ${ocB.score.toLocaleString()} (${ocB.time ? ocB.time.toFixed(1) + 's' : '--'})` : 'BEST OC: --');
+        const bestLine = `${stdTxt}   |   ${ocTxt}`;
+        fitText(bestLine, maxW, '600', 11, 9);
+        ctx.fillStyle = '#6c8594';
+        ctx.fillText(bestLine, arena.cx, pill.y + pill.h + 18);
+      }
+
+      // Responsive wrapped control legend (Mac, Xbox, Touch)
+      const legendItems = [
+        'XBOX: Left Stick Move | Right Stick Aim | RT Fire | LT/LB Parry',
+        'MAC/PC: WASD Move | Mouse Aim & Hold Fire | Right-Click/Space Parry',
+        'TOUCH: Left Stick Move | Right Stick Aim & Fire | PARRY Reflect',
+        'PARRY CRIMSON SHOTS TO VENT + 3s OVERDRIVE | 3 PARRIES = +1 SHIELD'
+      ];
+      let ly = pill.y + pill.h + 44;
+      const legendFontSize = narrow ? 10 : 12;
+      const legendFont = `500 ${legendFontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      const lineStep = narrow ? 14 : 18;
+      for (const item of legendItems) {
+        const lines = wrapLines(item, maxW, legendFont);
+        ctx.font = legendFont;
+        ctx.fillStyle = item.startsWith('PARRY CRIMSON') ? '#00f0ff' : '#9ab2c0';
+        for (const ln of lines) {
+          ctx.fillText(ln, arena.cx, ly);
+          ly += lineStep;
+        }
+      }
+
+      const launchPrompt = narrow
+        ? '[ TAP / A / SPACE TO LAUNCH ]'
+        : '[ PRESS A / SPACE / CLICK TO LAUNCH ]  •  [ D-PAD / TAB TO SWITCH MODE ]';
+      const subPrompt = '[ TAP MODE BAR / D-PAD / TAB TO SWITCH MODE ]';
+      fitText(launchPrompt, maxW, '800', narrow ? 13 : 15, 11);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(launchPrompt, arena.cx, Math.min(arena.y + arena.h - 28, ly + 16));
+      if (narrow) {
+        fitText(subPrompt, maxW, '600', 11, 9);
+        ctx.fillStyle = '#6c8594';
+        ctx.fillText(subPrompt, arena.cx, Math.min(arena.y + arena.h - 10, ly + 34));
+      }
+
+    } else if (state.screen === 'PAUSED') {
+      fitText('SYSTEM PAUSED', maxW, '900', 30, 20);
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillText('SYSTEM PAUSED', arena.cx, arena.cy - 44);
+
+      const sub = 'D-PAD / ARROWS TO SELECT  •  A / SPACE CONFIRM  •  B / ESC MENU';
+      fitText(sub, maxW, '600', 12, 9);
+      ctx.fillStyle = '#9ab2c0';
+      ctx.fillText(sub, arena.cx, arena.cy - 14);
+
+      drawOverlayButtons(['RESUME', 'BACK TO MENU']);
+
+    } else if (state.screen === 'GAME_OVER') {
+      fitText('HULL DESTROYED', maxW, '900', 32, 20);
+      ctx.fillStyle = '#ff2a55';
+      ctx.fillText('HULL DESTROYED', arena.cx, arena.cy - 52);
+
+      const checkpointMsg = state.difficulty === 'OVERCLOCKED'
+        ? 'OVERCLOCKED RUN TERMINATED // RESTARTING AT BOSS 01'
+        : `CHECKPOINT ACTIVE // RETRYING ${BOSS_DEFS[state.bossIndex].name}`;
+      fitText(checkpointMsg, maxW, '600', 13, 10);
+      ctx.fillStyle = '#e6f4f8';
+      ctx.fillText(checkpointMsg, arena.cx, arena.cy - 18);
+
+      const retryLabel = state.difficulty === 'OVERCLOCKED' ? 'RETRY RUN (BOSS 01)' : 'RETRY CHECKPOINT';
+      drawOverlayButtons([retryLabel, 'BACK TO MENU']);
+
+    } else if (state.screen === 'VICTORY') {
+      fitText('GAUNTLET CLEARED', maxW, '900', 34, 22);
+      ctx.fillStyle = '#00ff9d';
+      ctx.fillText('GAUNTLET CLEARED', arena.cx, arena.cy - 68);
+
+      const statsLine = `SCORE: ${state.score.toLocaleString()}  //  TIME: ${state.runTime.toFixed(1)}s  //  REFLECTS: ${player.totalParries}`;
+      fitText(statsLine, maxW, '700', 14, 10);
+      ctx.fillStyle = '#e6f4f8';
+      ctx.fillText(statsLine, arena.cx, arena.cy - 34);
+
+      fitText(state.victoryMsg, maxW, '700', 13, 9);
+      ctx.fillStyle = '#ffb800';
+      ctx.fillText(state.victoryMsg, arena.cx, arena.cy - 8);
+
+      if (state.newBestNote) {
+        fitText(state.newBestNote, maxW, '700', 12, 9);
+        ctx.fillStyle = '#00f0ff';
+        ctx.fillText(state.newBestNote, arena.cx, arena.cy + 14);
+      }
+
+      drawOverlayButtons(['PLAY AGAIN', 'BACK TO MENU']);
+    }
+  }
+
+  // ============================================================================
+  // 13. TOP BAR CONTROLS
+  // ============================================================================
+  document.getElementById('audioBtn').addEventListener('click', () => {
+    audio.init();
+    audio.toggle();
+  });
+
+  document.getElementById('pauseBtn').addEventListener('click', () => {
+    togglePause();
+  });
+
+  // ============================================================================
+  // 14. FIXED-TIMESTEP LOOP
+  // ============================================================================
+  window.addEventListener('resize', resize);
+  resize();
+
+  let lastTime = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
